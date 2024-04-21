@@ -6,19 +6,16 @@
 #include <stdint.h>
 
 #define STRINGIFY(x) #x
+#define UNUSED_INTENTIONAL(x) { (void) (x); }
 #define UNUSED(x) {\
     fprintf(stderr, "UNUSED VARIABLE: %s\n", STRINGIFY(x));\
     (void) (x); }
 
+#define TODO(comment) {\
+    fprintf(stderr, "TODO (%s:%d): %s\n", __FILE__, __LINE__, comment); }
+
 const uint32_t initialWindowWidth = 800;
 const uint32_t initialWindowSize = 600;
-
-static struct RenderState {
-    VkInstance instance;
-    VkDebugUtilsMessengerEXT debugMessenger;
-
-    GLFWwindow* window;
-} state;
 
 #define REQUESTED_VALIDATION_LAYERS 1
 const char* validationLayers[REQUESTED_VALIDATION_LAYERS] = {
@@ -32,9 +29,9 @@ const char* validationLayers[REQUESTED_VALIDATION_LAYERS] = {
 #endif
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
-    const VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-    const VkDebugUtilsMessageTypeFlagsEXT messageType,
-    const VkDebugUtilsMessengerCallbackDataEXT *const pCallbackData,
+    VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+    VkDebugUtilsMessageTypeFlagsEXT messageType,
+    const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
     void *pUserData
 ) {
     fprintf(stderr, "Validation layer: %s\n", pCallbackData->pMessage);
@@ -89,10 +86,8 @@ bool checkValidationLayers() {
     return true;
 }
 
-const char *const *getRequiredExtensions(uint32_t *glfwExtensionCount) {
-    const char** glfwExtensions;
-    glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-    return glfwExtensions;
+const char **getRequiredExtensions(uint32_t *glfwExtensionCount) {
+    return glfwGetRequiredInstanceExtensions(glfwExtensionCount);
 }
 
 VkResult createInstance(
@@ -157,10 +152,11 @@ VkResult createInstance(
 }
 
 VkResult getExtensionFunction(
+    VkInstance instance,
     const char *const name,
     PFN_vkVoidFunction *function
 ) {
-    *function = vkGetInstanceProcAddr(state.instance, name);
+    *function = vkGetInstanceProcAddr(instance, name);
     if (*function == NULL) {
         fprintf(stderr, "Failed to load extension function: %s\n", name);
         return VK_ERROR_EXTENSION_NOT_PRESENT;
@@ -168,7 +164,10 @@ VkResult getExtensionFunction(
     return VK_SUCCESS;
 }
 
-void initDebugMessenger() {
+void initDebugMessenger(
+    VkInstance instance,
+    VkDebugUtilsMessengerEXT *debugMessenger
+) {
     if (!ENABLE_VALIDATION_LAYERS) {
         fprintf(stderr, "setupDebugMessenger: Validation layers not enabled\n");
         return;
@@ -180,14 +179,14 @@ void initDebugMessenger() {
     fillDebugMessengerCreateInfo(&messengerInfo);
 
     PFN_vkCreateDebugUtilsMessengerEXT func = NULL;
-    VkResult result = getExtensionFunction("vkCreateDebugUtilsMessengerEXT", (PFN_vkVoidFunction*) &func);
+    VkResult result = getExtensionFunction(instance, "vkCreateDebugUtilsMessengerEXT", (PFN_vkVoidFunction*) &func);
 
     if (result != VK_SUCCESS) {
         fprintf(stderr, "Failed to load vkCreateDebugUtilsMessengerEXT\n");
         return;
     }
 
-    result = func(state.instance, &messengerInfo, NULL, &state.debugMessenger);
+    result = func(instance, &messengerInfo, NULL, debugMessenger);
     if (result != VK_SUCCESS) {
         fprintf(stderr, "Failed to create debug messenger\n");
         return;
@@ -196,21 +195,57 @@ void initDebugMessenger() {
     fprintf(stderr, "Debug messenger created\n");
 }
 
-void cleanupDebugMessenger() {
+void cleanupDebugMessenger(
+    VkInstance instance,
+    VkDebugUtilsMessengerEXT *debugMessenger
+) {
     if (!ENABLE_VALIDATION_LAYERS) {
         fprintf(stderr, "cleanupDebugMessenger: Validation layers not enabled\n");
         return;
     }
 
     PFN_vkDestroyDebugUtilsMessengerEXT func;
-    VkResult result = getExtensionFunction("vkDestroyDebugUtilsMessengerEXT", (PFN_vkVoidFunction*) &func);
+    VkResult result = getExtensionFunction(instance, "vkDestroyDebugUtilsMessengerEXT", (PFN_vkVoidFunction*) &func);
     if (result != VK_SUCCESS) {
         fprintf(stderr, "Failed to load vkDestroyDebugUtilsMessengerEXT\n");
         return;
     }
 
-    func(state.instance, state.debugMessenger, NULL);
+    func(instance, *debugMessenger, NULL);
     fprintf(stderr, "Debug messenger destroyed\n");
+}
+
+VkResult getQueueFamilies(
+    VkPhysicalDevice device,
+    VkQueueFlags flags,
+    uint32_t *graphicsFamily
+) {
+    uint32_t queueFamilyCount = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, NULL);
+
+    VkQueueFamilyProperties *queueFamilies = malloc(queueFamilyCount * sizeof(VkQueueFamilyProperties));
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies);
+
+    for (uint32_t i = 0; i < queueFamilyCount; i++) {
+        if (queueFamilies[i].queueFlags & flags) {
+            *graphicsFamily = i;
+            free(queueFamilies);
+            return VK_SUCCESS;
+        }
+    }
+
+    free(queueFamilies);
+    return VK_ERROR_INITIALIZATION_FAILED;
+}
+
+bool deviceHasQueueFamilyFlags(
+    VkPhysicalDevice device,
+    VkQueueFlags flags
+) {
+    uint32_t _graphicsFamily;
+    VkResult result = getQueueFamilies(device, flags, &_graphicsFamily);
+    UNUSED_INTENTIONAL(_graphicsFamily);
+    return result == VK_SUCCESS;
 }
 
 int scoreDeviceCapabilities(
@@ -234,25 +269,21 @@ int scoreDeviceCapabilities(
         return 0;
     }
 
-    uint32_t queueFamilyIndex;
-    VkResult result;
-    result = getQueueFamilyWithFlags(device, VK_QUEUE_GRAPHICS_BIT, &queueFamilyIndex);
-    if (result != VK_SUCCESS) {
+    if (!deviceHasQueueFamilyFlags(device, VK_QUEUE_GRAPHICS_BIT)) {
         return 0;
     }
-
-    UNUSED(queueFamilyIndex);
 
     return score;
 }
 
-VkResult getPhysicalDevice(
+VkResult createPhysicalDevice(
+    VkInstance instance,
     VkPhysicalDevice *physicalDevice
 ) {
-    physicalDevice = VK_NULL_HANDLE;
+    *physicalDevice = VK_NULL_HANDLE;
 
     uint32_t deviceCount = 0;
-    vkEnumeratePhysicalDevices(state.instance, &deviceCount, NULL);
+    vkEnumeratePhysicalDevices(instance, &deviceCount, NULL);
 
     if (deviceCount == 0) {
         fprintf(stderr, "No physical devices found\n");
@@ -260,7 +291,7 @@ VkResult getPhysicalDevice(
     }
 
     VkPhysicalDevice *devices = malloc(deviceCount * sizeof(VkPhysicalDevice));
-    vkEnumeratePhysicalDevices(state.instance, &deviceCount, devices);
+    vkEnumeratePhysicalDevices(instance, &deviceCount, devices);
 
     // Find the device with the highest score
     int bestScore = 0;
@@ -278,55 +309,104 @@ VkResult getPhysicalDevice(
         return VK_ERROR_INITIALIZATION_FAILED;
     }
 
-    physicalDevice = devices[bestIndex];
+    *physicalDevice = devices[bestIndex];
     free(devices);
 
     return VK_SUCCESS;
 }
 
-VkResult getQueueFamilyWithFlags(
-    VkPhysicalDevice device,
-    VkQueueFlags flags,
-    uint32_t *queueFamilyIndex
+VkResult createLogicalDevice(
+    VkPhysicalDevice physicalDevice,
+    uint32_t graphicsFamily,
+    VkDevice *device
 ) {
-    uint32_t queueFamilyCount = 0;
-    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, NULL);
+    VkResult result;
 
-    VkQueueFamilyProperties *queueFamilies = malloc(queueFamilyCount * sizeof(VkQueueFamilyProperties));
-    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies);
+    VkDeviceQueueCreateInfo queueCreateInfo = { 0 };
+    queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    queueCreateInfo.queueFamilyIndex = graphicsFamily;
+    queueCreateInfo.queueCount = 1;
 
-    for (uint32_t i = 0; i < queueFamilyCount; i++) {
-        if (queueFamilies[i].queueFlags & flags) {
-            *queueFamilyIndex = i;
-            free(queueFamilies);
-            return VK_SUCCESS;
-        }
+    float queuePriority = 1.0f;
+    queueCreateInfo.pQueuePriorities = &queuePriority;
+
+    VkPhysicalDeviceFeatures deviceFeatures = { 0 };
+
+    VkDeviceCreateInfo deviceCreateInfo = { 0 };
+    deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
+
+    deviceCreateInfo.queueCreateInfoCount = 1;
+    deviceCreateInfo.pEnabledFeatures = &deviceFeatures;
+
+    if (ENABLE_VALIDATION_LAYERS) {
+        deviceCreateInfo.enabledLayerCount = REQUESTED_VALIDATION_LAYERS;
+        deviceCreateInfo.ppEnabledLayerNames = validationLayers;
+    } else {
+        deviceCreateInfo.enabledLayerCount = 0;
     }
 
-    free(queueFamilies);
-    return VK_ERROR_INITIALIZATION_FAILED;
+    TODO("Device extensions");
+
+    return vkCreateDevice(physicalDevice, &deviceCreateInfo, NULL, device);
 }
 
-void vulkanInit() {
+static struct RenderState {
+    VkInstance instance;
+    VkDebugUtilsMessengerEXT debugMessenger;
+    VkPhysicalDevice physicalDevice;
+    VkDevice device;
+    VkQueue deviceQueue;
+
+    GLFWwindow* window;
+} state;
+
+VkResult vulkanInit() {
     fprintf(stderr, "Initializing Vulkan\n");
-    VkResult result = createInstance(&state.instance);
+    VkInstance instance;
+    VkResult result = createInstance(&instance);
     if (result != VK_SUCCESS) {
         fprintf(stderr, "Failed to create Vulkan instance\n");
-        exit(1);
+        return result;
     }
 
-    if (ENABLE_VALIDATION_LAYERS) initDebugMessenger(state);
+    VkDebugUtilsMessengerEXT debugMessenger;
+    if (ENABLE_VALIDATION_LAYERS) initDebugMessenger(instance, &debugMessenger);
 
     VkPhysicalDevice physicalDevice;
-    result = getPhysicalDevice(&physicalDevice);
+    result = createPhysicalDevice(instance, &physicalDevice);
     if (result != VK_SUCCESS) {
         fprintf(stderr, "Failed to get physical device\n");
-        exit(1);
+        return result;
     }
 
-    UNUSED(physicalDevice);
+    uint32_t graphicsFamily;
+    result = getQueueFamilies(physicalDevice, VK_QUEUE_GRAPHICS_BIT, &graphicsFamily);
+
+    if (result != VK_SUCCESS) {
+        fprintf(stderr, "Failed to get graphics queue family\n");
+        return result;
+    }
+
+    VkDevice device;
+    result = createLogicalDevice(physicalDevice, graphicsFamily, &device);
+
+    if (result != VK_SUCCESS) {
+        fprintf(stderr, "Failed to create logical device\n");
+        return result;
+    }
+
+    VkQueue deviceQueue;
+    vkGetDeviceQueue(device, graphicsFamily, 0, &deviceQueue);
 
     fprintf(stderr, "Vulkan context initialized\n");
+    state.instance = instance;
+    state.debugMessenger = debugMessenger;
+    state.physicalDevice = physicalDevice;
+    state.device = device;
+    state.deviceQueue = deviceQueue;
+
+    return VK_SUCCESS;
 }
 
 void glfwWindowInit() {
@@ -344,8 +424,9 @@ void glfwWindowInit() {
 
 void vulkanCleanup() {
     fprintf(stderr, "Cleaning up Vulkan\n");
-    if (ENABLE_VALIDATION_LAYERS) cleanupDebugMessenger();
+    if (ENABLE_VALIDATION_LAYERS) cleanupDebugMessenger(state.instance, &state.debugMessenger);
 
+    vkDestroyDevice(state.device, NULL);
     vkDestroyInstance(state.instance, NULL);
 
     glfwDestroyWindow(state.window);
@@ -353,7 +434,12 @@ void vulkanCleanup() {
 }
 
 int main(void) {
-    vulkanInit();
+    VkResult result = vulkanInit();
+    if (result != VK_SUCCESS) {
+        fprintf(stderr, "Failed to initialize Vulkan\n");
+        exit(1);
+    }
+
     glfwWindowInit();
 
     while(!glfwWindowShouldClose(state.window)) {
