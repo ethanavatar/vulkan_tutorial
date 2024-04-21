@@ -5,6 +5,11 @@
 
 #include <stdint.h>
 
+#define STRINGIFY(x) #x
+#define UNUSED(x) {\
+    fprintf(stderr, "UNUSED VARIABLE: %s\n", STRINGIFY(x));\
+    (void) (x); }
+
 const uint32_t initialWindowWidth = 800;
 const uint32_t initialWindowSize = 600;
 
@@ -208,19 +213,102 @@ void cleanupDebugMessenger() {
     fprintf(stderr, "Debug messenger destroyed\n");
 }
 
+int scoreDeviceCapabilities(
+    VkPhysicalDevice device
+) {
+    VkPhysicalDeviceProperties deviceProperties;
+    vkGetPhysicalDeviceProperties(device, &deviceProperties);
+
+    VkPhysicalDeviceFeatures deviceFeatures;
+    vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+
+    int score = 0;
+
+    if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+        score += 1000;
+    }
+
+    score += deviceProperties.limits.maxImageDimension2D;
+
+    if (!deviceFeatures.geometryShader) {
+        return 0;
+    }
+
+    uint32_t queueFamilyIndex;
+    VkResult result;
+    result = getQueueFamilyWithFlags(device, VK_QUEUE_GRAPHICS_BIT, &queueFamilyIndex);
+    if (result != VK_SUCCESS) {
+        return 0;
+    }
+
+    UNUSED(queueFamilyIndex);
+
+    return score;
+}
+
+VkResult getPhysicalDevice(
+    VkPhysicalDevice *physicalDevice
+) {
+    physicalDevice = VK_NULL_HANDLE;
+
+    uint32_t deviceCount = 0;
+    vkEnumeratePhysicalDevices(state.instance, &deviceCount, NULL);
+
+    if (deviceCount == 0) {
+        fprintf(stderr, "No physical devices found\n");
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+
+    VkPhysicalDevice *devices = malloc(deviceCount * sizeof(VkPhysicalDevice));
+    vkEnumeratePhysicalDevices(state.instance, &deviceCount, devices);
+
+    // Find the device with the highest score
+    int bestScore = 0;
+    int bestIndex = -1;
+    for (uint32_t i = 0; i < deviceCount; i++) {
+        int score = scoreDeviceCapabilities(devices[i]);
+        if (score > bestScore) {
+            bestScore = score;
+            bestIndex = i;
+        }
+    }
+
+    if (bestIndex == -1) {
+        fprintf(stderr, "No suitable physical device found\n");
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+
+    physicalDevice = devices[bestIndex];
+    free(devices);
+
+    return VK_SUCCESS;
+}
+
+VkResult getQueueFamilyWithFlags(
+    VkPhysicalDevice device,
+    VkQueueFlags flags,
+    uint32_t *queueFamilyIndex
+) {
+    uint32_t queueFamilyCount = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, NULL);
+
+    VkQueueFamilyProperties *queueFamilies = malloc(queueFamilyCount * sizeof(VkQueueFamilyProperties));
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies);
+
+    for (uint32_t i = 0; i < queueFamilyCount; i++) {
+        if (queueFamilies[i].queueFlags & flags) {
+            *queueFamilyIndex = i;
+            free(queueFamilies);
+            return VK_SUCCESS;
+        }
+    }
+
+    free(queueFamilies);
+    return VK_ERROR_INITIALIZATION_FAILED;
+}
+
 void vulkanInit() {
     fprintf(stderr, "Initializing Vulkan\n");
-    glfwInit();
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-
-    uint32_t extensionCount;
-    vkEnumerateInstanceExtensionProperties(NULL, &extensionCount, NULL);
-    fprintf(stderr, "Extension count: %d\n", extensionCount);
-
-    GLFWwindow* window = glfwCreateWindow(800, 600, "Vulkan Triangle", NULL, NULL);
-    state.window = window;
-
     VkResult result = createInstance(&state.instance);
     if (result != VK_SUCCESS) {
         fprintf(stderr, "Failed to create Vulkan instance\n");
@@ -228,6 +316,30 @@ void vulkanInit() {
     }
 
     if (ENABLE_VALIDATION_LAYERS) initDebugMessenger(state);
+
+    VkPhysicalDevice physicalDevice;
+    result = getPhysicalDevice(&physicalDevice);
+    if (result != VK_SUCCESS) {
+        fprintf(stderr, "Failed to get physical device\n");
+        exit(1);
+    }
+
+    UNUSED(physicalDevice);
+
+    fprintf(stderr, "Vulkan context initialized\n");
+}
+
+void glfwWindowInit() {
+    if (!glfwInit()) {
+        fprintf(stderr, "Failed to initialize GLFW\n");
+        exit(1);
+    }
+
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+
+    GLFWwindow* window = glfwCreateWindow(800, 600, "Vulkan Triangle", NULL, NULL);
+    state.window = window;
 }
 
 void vulkanCleanup() {
@@ -242,13 +354,13 @@ void vulkanCleanup() {
 
 int main(void) {
     vulkanInit();
+    glfwWindowInit();
 
     while(!glfwWindowShouldClose(state.window)) {
         glfwPollEvents();
     }
 
     vulkanCleanup();
-
     exit(0);
     return 0;
 }
