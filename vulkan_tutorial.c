@@ -1,5 +1,8 @@
+#define VK_USE_PLATFORM_WIN32_KHR
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3native.h>
 
 #include <cglm/cglm.h>
 
@@ -14,8 +17,15 @@
 #define TODO(comment) {\
     fprintf(stderr, "TODO (%s:%d): %s\n", __FILE__, __LINE__, comment); }
 
+#define RETURN_IF_NOT_VK_SUCCESS(R, MSG) do {\
+    if (R != VK_SUCCESS) {\
+        fprintf(stderr, "Error: %s\n", MSG);\
+        return R;\
+    }\
+} while(0)
+
 const uint32_t initialWindowWidth = 800;
-const uint32_t initialWindowSize = 600;
+const uint32_t initialWindowHeight = 600;
 
 #define REQUESTED_VALIDATION_LAYERS 1
 const char* validationLayers[REQUESTED_VALIDATION_LAYERS] = {
@@ -64,7 +74,8 @@ bool checkValidationLayers() {
     if (layerCount == 0) return false;
 
     // Smh, MSVC, I can't use a VLA here
-    VkLayerProperties *availableLayers = malloc(layerCount * sizeof(VkLayerProperties));
+    VkLayerProperties *availableLayers;
+    availableLayers = malloc(layerCount * sizeof(VkLayerProperties));
     vkEnumerateInstanceLayerProperties(&layerCount, availableLayers);
 
     for (uint32_t i = 0; i < REQUESTED_VALIDATION_LAYERS; i++) {
@@ -164,13 +175,14 @@ VkResult getExtensionFunction(
     return VK_SUCCESS;
 }
 
-void initDebugMessenger(
+VkResult createDebugMessenger(
     VkInstance instance,
     VkDebugUtilsMessengerEXT *debugMessenger
 ) {
+    VkResult result = VK_SUCCESS;
     if (!ENABLE_VALIDATION_LAYERS) {
         fprintf(stderr, "setupDebugMessenger: Validation layers not enabled\n");
-        return;
+        return result;
     }
 
     fprintf(stderr, "Setting up debug messenger\n");
@@ -179,40 +191,34 @@ void initDebugMessenger(
     fillDebugMessengerCreateInfo(&messengerInfo);
 
     PFN_vkCreateDebugUtilsMessengerEXT func = NULL;
-    VkResult result = getExtensionFunction(instance, "vkCreateDebugUtilsMessengerEXT", (PFN_vkVoidFunction*) &func);
-
-    if (result != VK_SUCCESS) {
-        fprintf(stderr, "Failed to load vkCreateDebugUtilsMessengerEXT\n");
-        return;
-    }
+    result = getExtensionFunction(instance, "vkCreateDebugUtilsMessengerEXT", (PFN_vkVoidFunction*) &func);
+    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to load extension function: vkCreateDebugUtilsMessengerEXT");
 
     result = func(instance, &messengerInfo, NULL, debugMessenger);
-    if (result != VK_SUCCESS) {
-        fprintf(stderr, "Failed to create debug messenger\n");
-        return;
-    }
+    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create debug messenger");
 
     fprintf(stderr, "Debug messenger created\n");
+    return result;
 }
 
-void cleanupDebugMessenger(
+VkResult cleanupDebugMessenger(
     VkInstance instance,
     VkDebugUtilsMessengerEXT *debugMessenger
 ) {
+    VkResult result = VK_SUCCESS;
     if (!ENABLE_VALIDATION_LAYERS) {
         fprintf(stderr, "cleanupDebugMessenger: Validation layers not enabled\n");
-        return;
+        return result;
     }
 
-    PFN_vkDestroyDebugUtilsMessengerEXT func;
-    VkResult result = getExtensionFunction(instance, "vkDestroyDebugUtilsMessengerEXT", (PFN_vkVoidFunction*) &func);
-    if (result != VK_SUCCESS) {
-        fprintf(stderr, "Failed to load vkDestroyDebugUtilsMessengerEXT\n");
-        return;
-    }
+    PFN_vkDestroyDebugUtilsMessengerEXT func = NULL;
+    result = getExtensionFunction(instance, "vkDestroyDebugUtilsMessengerEXT", (PFN_vkVoidFunction*) &func);
+    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to load extension function: vkDestroyDebugUtilsMessengerEXT");
 
     func(instance, *debugMessenger, NULL);
+
     fprintf(stderr, "Debug messenger destroyed\n");
+    return result;
 }
 
 VkResult getQueueFamilies(
@@ -223,12 +229,47 @@ VkResult getQueueFamilies(
     uint32_t queueFamilyCount = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, NULL);
 
-    VkQueueFamilyProperties *queueFamilies = malloc(queueFamilyCount * sizeof(VkQueueFamilyProperties));
-    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies);
+    VkQueueFamilyProperties *queueFamilies;
+    queueFamilies = malloc(queueFamilyCount * sizeof(VkQueueFamilyProperties));
+    vkGetPhysicalDeviceQueueFamilyProperties(
+        device,
+        &queueFamilyCount,
+        queueFamilies
+    );
 
     for (uint32_t i = 0; i < queueFamilyCount; i++) {
-        if (queueFamilies[i].queueFlags & flags) {
+        if (queueFamilies[i].queueCount > 0 && queueFamilies[i].queueFlags & flags) {
             *graphicsFamily = i;
+            free(queueFamilies);
+            return VK_SUCCESS;
+        }
+    }
+
+    free(queueFamilies);
+    return VK_ERROR_INITIALIZATION_FAILED;
+}
+
+VkResult getPresentQueueFamilies(
+    VkPhysicalDevice device,
+    VkSurfaceKHR surface,
+    uint32_t *presentFamily
+) {
+    uint32_t queueFamilyCount = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, NULL);
+
+    VkQueueFamilyProperties *queueFamilies;
+    queueFamilies = malloc(queueFamilyCount * sizeof(VkQueueFamilyProperties));
+    vkGetPhysicalDeviceQueueFamilyProperties(
+        device,
+        &queueFamilyCount,
+        queueFamilies
+    );
+
+    for (uint32_t i = 0; i < queueFamilyCount; i++) {
+        VkBool32 presentSupport = false;
+        vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+        if (queueFamilies[i].queueCount > 0 && presentSupport) {
+            *presentFamily = i;
             free(queueFamilies);
             return VK_SUCCESS;
         }
@@ -276,7 +317,7 @@ int scoreDeviceCapabilities(
     return score;
 }
 
-VkResult createPhysicalDevice(
+VkResult getPhysicalDevice(
     VkInstance instance,
     VkPhysicalDevice *physicalDevice
 ) {
@@ -351,6 +392,7 @@ VkResult createLogicalDevice(
     return vkCreateDevice(physicalDevice, &deviceCreateInfo, NULL, device);
 }
 
+#define QUEUE_FAMILIES_COUNT 2
 static struct RenderState {
     VkInstance instance;
     VkDebugUtilsMessengerEXT debugMessenger;
@@ -359,57 +401,37 @@ static struct RenderState {
     VkQueue deviceQueue;
 
     GLFWwindow* window;
+    VkSurfaceKHR windowSurface;
 } state;
 
 VkResult vulkanInit() {
     fprintf(stderr, "Initializing Vulkan\n");
     VkInstance instance;
     VkResult result = createInstance(&instance);
-    if (result != VK_SUCCESS) {
-        fprintf(stderr, "Failed to create Vulkan instance\n");
-        return result;
-    }
+    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create Vulkan instance");
 
     VkDebugUtilsMessengerEXT debugMessenger;
-    if (ENABLE_VALIDATION_LAYERS) initDebugMessenger(instance, &debugMessenger);
+    if (ENABLE_VALIDATION_LAYERS) {
+        result = createDebugMessenger(instance, &debugMessenger);
+        RETURN_IF_NOT_VK_SUCCESS(result, "Failed to initialize debug messenger");
+    }
 
     VkPhysicalDevice physicalDevice;
-    result = createPhysicalDevice(instance, &physicalDevice);
-    if (result != VK_SUCCESS) {
-        fprintf(stderr, "Failed to get physical device\n");
-        return result;
-    }
+    result = getPhysicalDevice(instance, &physicalDevice);
+    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to get physical device");
 
     uint32_t graphicsFamily;
-    result = getQueueFamilies(physicalDevice, VK_QUEUE_GRAPHICS_BIT, &graphicsFamily);
-
-    if (result != VK_SUCCESS) {
-        fprintf(stderr, "Failed to get graphics queue family\n");
-        return result;
-    }
+    VkQueueFlags flags = VK_QUEUE_GRAPHICS_BIT;
+    result = getQueueFamilies(physicalDevice, flags, &graphicsFamily);
+    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to get graphics queue family");
 
     VkDevice device;
     result = createLogicalDevice(physicalDevice, graphicsFamily, &device);
-
-    if (result != VK_SUCCESS) {
-        fprintf(stderr, "Failed to create logical device\n");
-        return result;
-    }
+    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create logical device");
 
     VkQueue deviceQueue;
     vkGetDeviceQueue(device, graphicsFamily, 0, &deviceQueue);
 
-    fprintf(stderr, "Vulkan context initialized\n");
-    state.instance = instance;
-    state.debugMessenger = debugMessenger;
-    state.physicalDevice = physicalDevice;
-    state.device = device;
-    state.deviceQueue = deviceQueue;
-
-    return VK_SUCCESS;
-}
-
-void glfwWindowInit() {
     if (!glfwInit()) {
         fprintf(stderr, "Failed to initialize GLFW\n");
         exit(1);
@@ -418,15 +440,57 @@ void glfwWindowInit() {
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-    GLFWwindow* window = glfwCreateWindow(800, 600, "Vulkan Triangle", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(
+        initialWindowWidth,
+        initialWindowHeight,
+        "Vulkan Triangle",
+        NULL,
+        NULL
+    );
+
+    // Create window surface
+    VkSurfaceKHR surface = VK_NULL_HANDLE;
+    result = glfwCreateWindowSurface(instance, window, NULL, &surface);
+    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create window surface");
+
+    uint32_t presentFamily;
+    result = getPresentQueueFamilies(physicalDevice, surface, &presentFamily);
+    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to get present queue family");
+
+    VkQueue presentQueue;
+    vkGetDeviceQueue(device, presentFamily, 0, &presentQueue);
+
+    UNUSED(presentQueue);
+
+    fprintf(stderr, "Vulkan context initialized successfully\n");
+    state.instance = instance;
+    state.debugMessenger = debugMessenger;
+    state.physicalDevice = physicalDevice;
+    state.device = device;
+    state.deviceQueue = deviceQueue;
+
     state.window = window;
+    state.windowSurface = surface;
+
+    return VK_SUCCESS;
+}
+
+void glfwWindowInit() {
+
 }
 
 void vulkanCleanup() {
     fprintf(stderr, "Cleaning up Vulkan\n");
-    if (ENABLE_VALIDATION_LAYERS) cleanupDebugMessenger(state.instance, &state.debugMessenger);
+    if (ENABLE_VALIDATION_LAYERS) {
+        VkResult result = cleanupDebugMessenger(
+            state.instance,
+            &state.debugMessenger
+        );
+        UNUSED_INTENTIONAL(result);
+    }
 
     vkDestroyDevice(state.device, NULL);
+    vkDestroySurfaceKHR(state.instance, state.windowSurface, NULL);
     vkDestroyInstance(state.instance, NULL);
 
     glfwDestroyWindow(state.window);
@@ -439,8 +503,6 @@ int main(void) {
         fprintf(stderr, "Failed to initialize Vulkan\n");
         exit(1);
     }
-
-    glfwWindowInit();
 
     while(!glfwWindowShouldClose(state.window)) {
         glfwPollEvents();
