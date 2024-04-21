@@ -2,6 +2,6 @@
 	path = glfw
 	url = https://github.com/glfw/glfw
 	branch = latest
-[submodule "glm"]
-	path = glm
-	url = https://github.com/g-truc/glm
+[submodule "cglm"]
+	path = cglm
+	url = https://github.com/recp/cglm
