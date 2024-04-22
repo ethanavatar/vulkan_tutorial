@@ -1,9 +1,12 @@
-cmake_minimum_required(VERSION 3.26.4)
+cmake_minimum_required(VERSION 3.24.0)
 
 project(vulkan_tutorial C)
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
+
+set(CMAKE_BUILD_SHARED_LIBS OFF)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 add_executable(vulkan_tutorial vulkan_tutorial.c)
 

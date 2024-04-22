@@ -1,6 +1,8 @@
 #define VK_USE_PLATFORM_WIN32_KHR
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+#include <vulkan/vk_enum_string_helper.h>
+
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
 
@@ -140,6 +142,7 @@ VkResult createInstance(
     // Required extensions
     uint32_t glfwExtensionCount = 0;
     const char** glfwExtensions = getRequiredExtensions(&glfwExtensionCount);
+    fprintf(stderr, "GLFW extensions: %d\n", glfwExtensionCount);
 
     // Optional extensions
     uint32_t extensionCount = glfwExtensionCount;
@@ -404,7 +407,26 @@ static struct RenderState {
     VkSurfaceKHR windowSurface;
 } state;
 
-VkResult vulkanInit() {
+VkResult renderInit() {
+
+    if (!glfwInit()) {
+        fprintf(stderr, "Failed to initialize GLFW\n");
+        exit(1);
+    }
+    fprintf(stderr, "GLFW initialized: %s\n", glfwGetVersionString());
+    fprintf(stderr, "Vulkan supported: %s\n", glfwVulkanSupported() ? "yes" : "no");
+
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+
+    GLFWwindow* window = glfwCreateWindow(
+        initialWindowWidth,
+        initialWindowHeight,
+        "Vulkan Triangle",
+        NULL,
+        NULL
+    );
+
     fprintf(stderr, "Initializing Vulkan\n");
     VkInstance instance;
     VkResult result = createInstance(&instance);
@@ -431,22 +453,6 @@ VkResult vulkanInit() {
 
     VkQueue deviceQueue;
     vkGetDeviceQueue(device, graphicsFamily, 0, &deviceQueue);
-
-    if (!glfwInit()) {
-        fprintf(stderr, "Failed to initialize GLFW\n");
-        exit(1);
-    }
-
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-
-    GLFWwindow* window = glfwCreateWindow(
-        initialWindowWidth,
-        initialWindowHeight,
-        "Vulkan Triangle",
-        NULL,
-        NULL
-    );
 
     // Create window surface
     VkSurfaceKHR surface = VK_NULL_HANDLE;
@@ -475,10 +481,6 @@ VkResult vulkanInit() {
     return VK_SUCCESS;
 }
 
-void glfwWindowInit() {
-
-}
-
 void vulkanCleanup() {
     fprintf(stderr, "Cleaning up Vulkan\n");
     if (ENABLE_VALIDATION_LAYERS) {
@@ -498,9 +500,10 @@ void vulkanCleanup() {
 }
 
 int main(void) {
-    VkResult result = vulkanInit();
+    VkResult result = renderInit();
     if (result != VK_SUCCESS) {
-        fprintf(stderr, "Failed to initialize Vulkan\n");
+        char *result_str = string_VkResult(result);
+        fprintf(stderr, "Failed to initialize Vulkan: %s\n", result_str);
         exit(1);
     }
 
