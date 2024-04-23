@@ -591,6 +591,39 @@ VkResult createSwapChain(
     return VK_SUCCESS;
 }
 
+VkResult createImageViews(
+    VkDevice device,
+    VkImage *swapChainImages,
+    uint32_t imageCount,
+    VkFormat imageFormat,
+    VkImageView *swapChainImageViews
+) {
+    VkResult result = VK_SUCCESS;
+    for (uint32_t i = 0; i < imageCount; i++) {
+        VkImageViewCreateInfo createInfo = { 0 };
+        createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        createInfo.image = swapChainImages[i];
+        createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        createInfo.format = imageFormat;
+
+        createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+        createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+        createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+        createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+
+        createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        createInfo.subresourceRange.baseMipLevel = 0;
+        createInfo.subresourceRange.levelCount = 1;
+        createInfo.subresourceRange.baseArrayLayer = 0;
+        createInfo.subresourceRange.layerCount = 1;
+
+        result = vkCreateImageView(device, &createInfo, NULL, &swapChainImageViews[i]);
+        if (result != VK_SUCCESS) break;
+    }
+
+    return result;
+}
+
 
 #define QUEUE_FAMILIES_COUNT 2
 static struct RenderState {
@@ -607,9 +640,12 @@ static struct RenderState {
     VkQueue presentQueue;
 
     VkSwapchainKHR swapChain;
+    uint32_t swapChainImageCount;
     VkImage *swapChainImages;
     VkFormat swapChainImageFormat;
     VkExtent2D swapChainExtent;
+
+    VkImageView *swapChainImageViews;
 } state;
 
 VkResult renderInit() {
@@ -630,6 +666,8 @@ VkResult renderInit() {
         NULL,
         NULL
     );
+
+    TODO("Pass around initialization values by stack pointer instead of making huge copies everywhere");
 
     fprintf(stderr, "Initializing Vulkan\n");
     VkInstance instance;
@@ -690,6 +728,10 @@ VkResult renderInit() {
     );
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create swap chain");
 
+    VkImageView *swapChainImageViews;
+    swapChainImageViews = malloc(imageCount * sizeof(VkImageView));
+    result = createImageViews(device, swapChainImages, imageCount, swapChainImageFormat, swapChainImageViews);
+    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create image views");
 
     fprintf(stderr, "Vulkan context initialized successfully\n");
     state.instance = instance;
@@ -707,6 +749,14 @@ VkResult renderInit() {
 
     state.swapChain = swapChain;
 
+    state.swapChainImageCount = imageCount;
+    state.swapChainImages = swapChainImages;
+    state.swapChainImageFormat = swapChainImageFormat;
+    state.swapChainExtent = swapChainExtent;
+
+    state.swapChainImageViews = swapChainImageViews;
+
+
     return VK_SUCCESS;
 }
 
@@ -719,6 +769,11 @@ void vulkanCleanup() {
         );
         UNUSED_INTENTIONAL(result);
     }
+
+    for (uint32_t i = 0; i < state.swapChainImageCount; i++) {
+        vkDestroyImageView(state.device, state.swapChainImageViews[i], NULL);
+    }
+    free(state.swapChainImageViews);
 
     vkDestroySwapchainKHR(state.device, state.swapChain, NULL);
     vkDestroyDevice(state.device, NULL);
