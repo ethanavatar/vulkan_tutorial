@@ -678,6 +678,7 @@ VkResult renderInit() {
     result = glfwCreateWindowSurface(instance, window, NULL, &surface);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create window surface");
 
+    TODO("Some sort of optional type for debugMessenger")
     VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
     if (ENABLE_VALIDATION_LAYERS) {
         result = createDebugMessenger(instance, &debugMessenger);
