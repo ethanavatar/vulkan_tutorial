@@ -20,4 +20,5 @@ target_include_directories(vulkan_tutorial PRIVATE ${CMAKE_SOURCE_DIR}/cglm/incl
 target_include_directories(vulkan_tutorial PRIVATE $ENV{VULKAN_SDK}/Include)
 
 target_link_libraries(vulkan_tutorial $ENV{VULKAN_SDK}/Lib/vulkan-1.lib)
+target_link_libraries(vulkan_tutorial $ENV{VULKAN_SDK}/Lib/shaderc_combined.lib)
 target_link_libraries(vulkan_tutorial glfw cglm)
