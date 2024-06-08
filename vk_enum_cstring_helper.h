@@ -1,6 +1,7 @@
 /// This file is a C version of <vulkan/vk_enum_string_helper.h>.
 /// The vulkan header uses a C++ header, even though this one function is pure C.
 
+#pragma once
 #ifndef VK_ENUM_CSTRING_HELPER_H
 #define VK_ENUM_CSTRING_HELPER_H
 

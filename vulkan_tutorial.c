@@ -1,6 +1,10 @@
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
 
+#include "globals.h"
+#include "debug_messenger.h"
+#include "vulkan_extensions.h"
+
 #ifdef __cplusplus
 #include <vulkan/vk_enum_string_helper.h>
 #else
@@ -15,26 +19,8 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
 #include <math.h>
-
-#define STRINGIFY(x) #x
-#define UNUSED_INTENTIONAL(x) { (void) (x); }
-#define UNUSED(x) {\
-    fprintf(stderr, "UNUSED VARIABLE: %s\n", STRINGIFY(x));\
-    (void) (x); }
-
-#define TODO(comment) {\
-    fprintf(stderr, "TODO (%s:%d): %s\n", __FILE__, __LINE__, comment); }
-
-#define RETURN_IF_NOT_VK_SUCCESS(R, MSG) do {\
-    if (R != VK_SUCCESS) {\
-        fprintf(stderr, "Error: %s\n", MSG);\
-        return R;\
-    }\
-} while(0)
-
-const uint32_t initialWindowWidth = 800;
-const uint32_t initialWindowHeight = 600;
 
 #define REQUESTED_VALIDATION_LAYERS 1
 const char* validationLayers[REQUESTED_VALIDATION_LAYERS] = {
@@ -46,40 +32,8 @@ static const char* deviceExtensions[] = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME
 };
 
-#ifdef NDEBUG
-#    define ENABLE_VALIDATION_LAYERS false
-#else
-#    define ENABLE_VALIDATION_LAYERS true
-#endif
-
-static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
-    VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-    VkDebugUtilsMessageTypeFlagsEXT messageType,
-    const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
-    void *pUserData
-) {
-    fprintf(stderr, "Validation layer: %s\n", pCallbackData->pMessage);
-    return VK_FALSE;
-}
-
-void fillDebugMessengerCreateInfo(
-    VkDebugUtilsMessengerCreateInfoEXT *messengerInfo
-) {
-    fprintf(stderr, "fillDebugMessengerCreateInfo\n");
-    messengerInfo->sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-    messengerInfo->messageSeverity =
-        VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT
-        | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
-        | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-
-    messengerInfo->messageType =
-        VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
-        | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
-        | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-
-    messengerInfo->pfnUserCallback = debugCallback;
-    messengerInfo->pUserData = NULL;
-}
+const uint32_t initialWindowWidth = 800;
+const uint32_t initialWindowHeight = 600;
 
 bool checkValidationLayers() {
     uint32_t layerCount;
@@ -173,65 +127,6 @@ VkResult createInstance(
     instanceCreateInfo.ppEnabledExtensionNames = extensions;
 
     return vkCreateInstance(&instanceCreateInfo, NULL, Instance);
-}
-
-VkResult getExtensionFunction(
-    VkInstance instance,
-    const char *const name,
-    PFN_vkVoidFunction *function
-) {
-    *function = vkGetInstanceProcAddr(instance, name);
-    if (*function == NULL) {
-        fprintf(stderr, "Failed to load extension function: %s\n", name);
-        return VK_ERROR_EXTENSION_NOT_PRESENT;
-    }
-    return VK_SUCCESS;
-}
-
-VkResult createDebugMessenger(
-    VkInstance instance,
-    VkDebugUtilsMessengerEXT *debugMessenger
-) {
-    VkResult result = VK_SUCCESS;
-    if (!ENABLE_VALIDATION_LAYERS) {
-        fprintf(stderr, "setupDebugMessenger: Validation layers not enabled\n");
-        return result;
-    }
-
-    fprintf(stderr, "Setting up debug messenger\n");
-
-    VkDebugUtilsMessengerCreateInfoEXT messengerInfo = { 0 };
-    fillDebugMessengerCreateInfo(&messengerInfo);
-
-    PFN_vkCreateDebugUtilsMessengerEXT func = NULL;
-    result = getExtensionFunction(instance, "vkCreateDebugUtilsMessengerEXT", (PFN_vkVoidFunction*) &func);
-    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to load extension function: vkCreateDebugUtilsMessengerEXT");
-
-    result = func(instance, &messengerInfo, NULL, debugMessenger);
-    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create debug messenger");
-
-    fprintf(stderr, "Debug messenger created\n");
-    return result;
-}
-
-VkResult cleanupDebugMessenger(
-    VkInstance instance,
-    VkDebugUtilsMessengerEXT *debugMessenger
-) {
-    VkResult result = VK_SUCCESS;
-    if (!ENABLE_VALIDATION_LAYERS) {
-        fprintf(stderr, "cleanupDebugMessenger: Validation layers not enabled\n");
-        return result;
-    }
-
-    PFN_vkDestroyDebugUtilsMessengerEXT func = NULL;
-    result = getExtensionFunction(instance, "vkDestroyDebugUtilsMessengerEXT", (PFN_vkVoidFunction*) &func);
-    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to load extension function: vkDestroyDebugUtilsMessengerEXT");
-
-    func(instance, *debugMessenger, NULL);
-
-    fprintf(stderr, "Debug messenger destroyed\n");
-    return result;
 }
 
 VkResult getQueueFamilies(
@@ -422,8 +317,6 @@ VkResult createLogicalDevice(
     uint32_t graphicsFamily,
     VkDevice *device
 ) {
-    VkResult result;
-
     VkDeviceQueueCreateInfo queueCreateInfo = { 0 };
     queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
     queueCreateInfo.queueFamilyIndex = graphicsFamily;
@@ -491,14 +384,14 @@ VkExtent2D chooseSwapExtent(
 
     VkExtent2D actualExtent = { initialWindowWidth, initialWindowHeight };
 
-    actualExtent.width = fmax(
+    actualExtent.width = max(
         capabilities.minImageExtent.width,
-        fmin(capabilities.maxImageExtent.width, actualExtent.width)
+        min(capabilities.maxImageExtent.width, actualExtent.width)
     );
 
-    actualExtent.height = fmax(
+    actualExtent.height = max(
         capabilities.minImageExtent.height,
-        fmin(capabilities.maxImageExtent.height, actualExtent.height)
+        min(capabilities.maxImageExtent.height, actualExtent.height)
     );
 
     return actualExtent;
@@ -685,23 +578,6 @@ VkResult createGraphicsPipeline(
     VkPipeline *graphicsPipeline
 ) {
     VkResult result = VK_SUCCESS;
-    /*
-    VkResult result = createShaderModule(
-        device,
-        "shaders/vert.glsl",
-        SHADER_TYPE_VERTEX,
-        &vertShaderModule
-    );
-    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create vertex shader module");
-
-    result = createShaderModule(
-        device,
-        "shaders/frag.glsl",
-        SHADER_TYPE_FRAGMENT,
-        &fragShaderModule
-    );
-    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create fragment shader module");
-    */
 
     size_t size;
     const char *vertShaderCode = read_file_bytes("shaders/vert.spv", &size);
@@ -1010,7 +886,7 @@ void vulkanCleanup() {
 int main(void) {
     VkResult result = renderInit();
     if (result != VK_SUCCESS) {
-        char *result_str = string_VkResult(result);
+        const char *result_str = string_VkResult(result);
         fprintf(stderr, "Failed to initialize Vulkan: %s\n", result_str);
         exit(1);
     }
@@ -1021,5 +897,4 @@ int main(void) {
 
     vulkanCleanup();
     exit(0);
-    return 0;
 }
