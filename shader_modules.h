@@ -4,6 +4,7 @@
 #include <vulkan/vulkan.h>
 #include <shaderc/shaderc.h>
 
+/*
 enum shader_type {
 	SHADER_TYPE_VERTEX,
 	SHADER_TYPE_FRAGMENT
@@ -14,6 +15,7 @@ VkResult createShaderModule(
 	const char *glsl_filename,
 	VkShaderModule *shader_module
 );
+*/
 
 #endif // SHADER_MODULES_H
 
@@ -25,6 +27,9 @@ VkResult createShaderModule(
 
 #include "file_io.h"
 
+// TODO: Runtime compilation of GLSL to SPIR-V
+// This one is broken right now
+/*
 VkResult createShaderModule(
 	VkDevice device,
 	const char *glsl_filename,
@@ -93,8 +98,8 @@ VkResult createShaderModule(
 	free((void *) source);
 
 	return vk_result;
-
 }
+*/
 
 
 #endif // SHADER_MODULES_IMPLEMENTATION

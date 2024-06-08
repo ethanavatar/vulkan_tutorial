@@ -8,8 +8,8 @@
 #include "vk_enum_cstring_helper.h"
 #endif
 
-#define SHADER_MODULES_IMPLEMENTATION
-#include "shader_modules.h"
+#define FILE_IO_IMPLEMENTATION
+#include "file_io.h"
 
 #include <cglm/cglm.h>
 
@@ -71,10 +71,12 @@ void fillDebugMessengerCreateInfo(
         VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT
         | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
         | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+
     messengerInfo->messageType =
         VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
         | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
         | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+
     messengerInfo->pfnUserCallback = debugCallback;
     messengerInfo->pUserData = NULL;
 }
@@ -660,6 +662,21 @@ VkResult createRenderPass(
     return vkCreateRenderPass(device, &renderPassInfo, NULL, renderPass);
 }
 
+
+VkResult createShaderModule(
+    VkDevice device,
+    const char *shaderCode,
+    size_t shaderCodeSize,
+    VkShaderModule *shaderModule
+) {
+    VkShaderModuleCreateInfo createInfo = { 0 };
+    createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    createInfo.codeSize = shaderCodeSize;
+    createInfo.pCode = (uint32_t*)shaderCode;
+
+    return vkCreateShaderModule(device, &createInfo, NULL, shaderModule);
+}
+
 VkResult createGraphicsPipeline(
     VkDevice device,
     VkExtent2D swapChainExtent,
@@ -667,9 +684,8 @@ VkResult createGraphicsPipeline(
     VkPipelineLayout *pipelineLayout,
     VkPipeline *graphicsPipeline
 ) {
-    VkShaderModule vertShaderModule;
-    VkShaderModule fragShaderModule;
-
+    VkResult result = VK_SUCCESS;
+    /*
     VkResult result = createShaderModule(
         device,
         "shaders/vert.glsl",
@@ -684,6 +700,22 @@ VkResult createGraphicsPipeline(
         SHADER_TYPE_FRAGMENT,
         &fragShaderModule
     );
+    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create fragment shader module");
+    */
+
+    size_t size;
+    const char *vertShaderCode = read_file_bytes("shaders/vert.spv", &size);
+    fprintf(stderr, "vertex shader size: %zu\n", size);
+
+    VkShaderModule vertShaderModule;
+    result = createShaderModule(device, vertShaderCode, size, &vertShaderModule);
+    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create vertex shader module");
+
+    const char *fragShaderCode = read_file_bytes("shaders/frag.spv", &size);
+    fprintf(stderr, "fragment shader size: %zu\n", size);
+
+    VkShaderModule fragShaderModule;
+    result = createShaderModule(device, fragShaderCode, size, &fragShaderModule);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create fragment shader module");
 
     VkPipelineShaderStageCreateInfo vertShaderStageInfo = { 0 };
@@ -776,7 +808,7 @@ VkResult createGraphicsPipeline(
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = { 0 };
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 
-    result = vkCreatePipelineLayout(device, &pipelineLayoutInfo, NULL, &pipelineLayout);
+    result = vkCreatePipelineLayout(device, &pipelineLayoutInfo, NULL, pipelineLayout);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create pipeline layout");
 
     VkGraphicsPipelineCreateInfo pipelineInfo = { 0 };
@@ -789,7 +821,7 @@ VkResult createGraphicsPipeline(
     pipelineInfo.pRasterizationState = &rasterizer;
     pipelineInfo.pMultisampleState = &multisampling;
     pipelineInfo.pColorBlendState = &colorBlending;
-    pipelineInfo.layout = *pipelineLayout;
+    pipelineInfo.layout = pipelineLayout;
     pipelineInfo.renderPass = renderPass;
     pipelineInfo.subpass = 0;
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
@@ -851,17 +883,18 @@ VkResult renderInit() {
         NULL,
         NULL
     );
-
-    TODO("Pass around initialization values by stack pointer instead of making huge copies everywhere");
+    state.window = window;
 
     fprintf(stderr, "Initializing Vulkan\n");
     VkInstance instance;
     VkResult result = createInstance(&instance);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create Vulkan instance");
+    state.instance = instance;
 
     VkSurfaceKHR surface = VK_NULL_HANDLE;
     result = glfwCreateWindowSurface(instance, window, NULL, &surface);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create window surface");
+    state.windowSurface = surface;
 
     TODO("Some sort of optional type for debugMessenger")
     VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
@@ -869,10 +902,12 @@ VkResult renderInit() {
         result = createDebugMessenger(instance, &debugMessenger);
         RETURN_IF_NOT_VK_SUCCESS(result, "Failed to initialize debug messenger");
     }
+    state.debugMessenger = debugMessenger;
 
     VkPhysicalDevice physicalDevice;
     result = getPhysicalDevice(instance, surface, &physicalDevice);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to get physical device");
+    state.physicalDevice = physicalDevice;
 
     uint32_t graphicsFamily;
     VkQueueFlags flags = VK_QUEUE_GRAPHICS_BIT;
@@ -882,9 +917,11 @@ VkResult renderInit() {
     VkDevice device;
     result = createLogicalDevice(physicalDevice, graphicsFamily, &device);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create logical device");
+    state.device = device;
 
     VkQueue deviceQueue;
     vkGetDeviceQueue(device, graphicsFamily, 0, &deviceQueue);
+    state.deviceQueue = deviceQueue;
 
     uint32_t presentFamily;
     result = getPresentQueueFamilies(physicalDevice, surface, &presentFamily);
@@ -892,6 +929,7 @@ VkResult renderInit() {
 
     VkQueue presentQueue;
     vkGetDeviceQueue(device, presentFamily, 0, &presentQueue);
+    state.presentQueue = presentQueue;
 
     VkSwapchainKHR swapChain;
     uint32_t imageCount;
@@ -913,47 +951,31 @@ VkResult renderInit() {
         &swapChainExtent
     );
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create swap chain");
+    state.swapChain = swapChain;
+    state.swapChainImageCount = imageCount;
+    state.swapChainImages = swapChainImages;
+    state.swapChainImageFormat = swapChainImageFormat;
+    state.swapChainExtent = swapChainExtent;
 
     VkImageView *swapChainImageViews;
     swapChainImageViews = malloc(imageCount * sizeof(VkImageView));
     result = createImageViews(device, swapChainImages, imageCount, swapChainImageFormat, swapChainImageViews);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create image views");
+    state.swapChainImageViews = swapChainImageViews;
 
     VkRenderPass renderPass;
     result = createRenderPass(device, swapChainImageFormat, &renderPass);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create render pass");
+    state.renderPass = renderPass;
 
     VkPipelineLayout pipelineLayout;
     VkPipeline graphicsPipeline;
     result = createGraphicsPipeline(device, swapChainExtent, renderPass, &pipelineLayout, &graphicsPipeline);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create graphics pipeline");
-
-    fprintf(stderr, "Vulkan context initialized successfully\n");
-    state.instance = instance;
-
-    state.window = window;
-    state.windowSurface = surface;
-
-    state.debugMessenger = debugMessenger;
-
-    state.physicalDevice = physicalDevice;
-    state.device = device;
-
-    state.deviceQueue = deviceQueue;
-    state.presentQueue = presentQueue;
-
-    state.swapChain = swapChain;
-
-    state.swapChainImageCount = imageCount;
-    state.swapChainImages = swapChainImages;
-    state.swapChainImageFormat = swapChainImageFormat;
-    state.swapChainExtent = swapChainExtent;
-    state.swapChainImageViews = swapChainImageViews;
-
-    state.renderPass = renderPass;
     state.pipelineLayout = pipelineLayout;
     state.graphicsPipeline = graphicsPipeline;
 
+    fprintf(stderr, "Vulkan context initialized successfully\n");
     return VK_SUCCESS;
 }
 
