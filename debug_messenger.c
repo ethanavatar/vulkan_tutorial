@@ -1,9 +1,9 @@
 #include <stdio.h>
 #include <stdbool.h>
 
-#include "globals.h"
+#include "defines.h"
 #include "debug_messenger.h"
-#include "vulkan_extensions.h"
+#include "extensions.h"
 
 #include <vulkan/vulkan.h>
 

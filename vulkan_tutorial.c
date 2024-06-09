@@ -1,9 +1,11 @@
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
 
-#include "globals.h"
+#include "defines.h"
 #include "debug_messenger.h"
-#include "vulkan_extensions.h"
+#include "extensions.h"
+#include "shader_modules.h"
+#include "swap_chain.h"
 
 #ifdef __cplusplus
 #include <vulkan/vk_enum_string_helper.h>
@@ -81,9 +83,9 @@ VkResult createInstance(
     VkApplicationInfo appInfo = {
         .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
         .pApplicationName = "Vulkan Triangle",
-        .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
+        .applicationVersion = VK_MAKE_VERSION(0, 1, 0),
         .pEngineName = "No Engine",
-        .engineVersion = VK_MAKE_VERSION(1, 0, 0),
+        .engineVersion = VK_MAKE_VERSION(0, 1, 0),
         .apiVersion = VK_API_VERSION_1_0,
     };
 
@@ -338,142 +340,6 @@ VkResult createLogicalDevice(
     return vkCreateDevice(physicalDevice, &deviceCreateInfo, NULL, device);
 }
 
-VkSurfaceFormatKHR chooseSwapSurfaceFormat(
-    VkSurfaceFormatKHR *availableFormats,
-    uint32_t formatCount
-) {
-    for (uint32_t i = 0; i < formatCount; i++) {
-        if (availableFormats[i].format == VK_FORMAT_B8G8R8A8_SRGB
-            && availableFormats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-            return availableFormats[i];
-        }
-    }
-
-    return availableFormats[0];
-}
-
-VkPresentModeKHR chooseSwapPresentMode(
-    VkPresentModeKHR *availableModes,
-    uint32_t modeCount
-) {
-    for (uint32_t i = 0; i < modeCount; i++) {
-        if (availableModes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
-            return availableModes[i];
-        }
-    }
-
-    return VK_PRESENT_MODE_FIFO_KHR;
-}
-
-VkExtent2D chooseSwapExtent(
-    VkSurfaceCapabilitiesKHR capabilities
-) {
-    if (capabilities.currentExtent.width != UINT32_MAX) {
-        return capabilities.currentExtent;
-    }
-
-    VkExtent2D actualExtent = { initialWindowWidth, initialWindowHeight };
-
-    actualExtent.width = max(
-        capabilities.minImageExtent.width,
-        min(capabilities.maxImageExtent.width, actualExtent.width)
-    );
-
-    actualExtent.height = max(
-        capabilities.minImageExtent.height,
-        min(capabilities.maxImageExtent.height, actualExtent.height)
-    );
-
-    return actualExtent;
-}
-
-VkResult createSwapChain(
-    VkPhysicalDevice physicalDevice,
-    VkDevice device,
-    VkSurfaceKHR surface,
-    uint32_t graphicsFamily,
-    uint32_t presentFamily,
-    VkSwapchainKHR *swapChain,
-    uint32_t *swapChainImageCount,
-    VkImage **swapChainImages,
-    VkFormat *swapChainImageFormat,
-    VkExtent2D *swapChainExtent
-) {
-    VkResult result;
-
-    VkSurfaceCapabilitiesKHR capabilities;
-    result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &capabilities);
-    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to get surface capabilities");
-
-    uint32_t formatCount;
-    vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, NULL);
-    if (formatCount == 0) return VK_ERROR_INITIALIZATION_FAILED;
-
-    VkSurfaceFormatKHR *availableFormats;
-    availableFormats = alloca(formatCount * sizeof(VkSurfaceFormatKHR));
-    vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, availableFormats);
-
-    VkFormat imageFormat = chooseSwapSurfaceFormat(availableFormats, formatCount).format;
-    VkColorSpaceKHR colorSpace = chooseSwapSurfaceFormat(availableFormats, formatCount).colorSpace;
-
-    uint32_t presentModeCount;
-    vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, NULL);
-    if (presentModeCount == 0) return VK_ERROR_INITIALIZATION_FAILED;
-
-    VkPresentModeKHR *availablePresentModes;
-    availablePresentModes = alloca(presentModeCount * sizeof(VkPresentModeKHR));
-    vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, availablePresentModes);
-
-    VkPresentModeKHR presentMode = chooseSwapPresentMode(availablePresentModes, presentModeCount);
-
-    VkExtent2D extent = chooseSwapExtent(capabilities);
-
-    uint32_t imageCount = capabilities.minImageCount + 1;
-    if (capabilities.maxImageCount > 0 && imageCount > capabilities.maxImageCount) {
-        imageCount = capabilities.maxImageCount;
-    }
-
-    VkSwapchainCreateInfoKHR createInfo = { 0 };
-    createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-    createInfo.surface = surface;
-    createInfo.minImageCount = imageCount;
-    createInfo.imageFormat = imageFormat;
-    createInfo.imageColorSpace = colorSpace;
-    createInfo.imageExtent = extent;
-    createInfo.imageArrayLayers = 1;
-    createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-
-    uint32_t queueFamilyIndices[] = { graphicsFamily, presentFamily };
-
-    if (graphicsFamily != presentFamily) {
-        createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
-        createInfo.queueFamilyIndexCount = 2;
-        createInfo.pQueueFamilyIndices = queueFamilyIndices;
-    } else {
-        createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    }
-
-    createInfo.preTransform = capabilities.currentTransform;
-    createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    createInfo.presentMode = presentMode;
-    createInfo.clipped = VK_TRUE;
-    createInfo.oldSwapchain = VK_NULL_HANDLE;
-
-    result = vkCreateSwapchainKHR(device, &createInfo, NULL, swapChain);
-    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create swap chain");
-
-    vkGetSwapchainImagesKHR(device, *swapChain, &imageCount, NULL);
-    VkImage *images = malloc(imageCount * sizeof(VkImage));
-    vkGetSwapchainImagesKHR(device, *swapChain, &imageCount, images);
-
-    *swapChainImages = images;
-    *swapChainImageCount = imageCount;
-    *swapChainImageFormat = imageFormat;
-    *swapChainExtent = extent;
-
-    return VK_SUCCESS;
-}
-
 VkResult createImageViews(
     VkDevice device,
     VkImage *swapChainImages,
@@ -552,21 +418,6 @@ VkResult createRenderPass(
     return vkCreateRenderPass(device, &renderPassInfo, NULL, renderPass);
 }
 
-
-VkResult createShaderModule(
-    VkDevice device,
-    const char *shaderCode,
-    size_t shaderCodeSize,
-    VkShaderModule *shaderModule
-) {
-    VkShaderModuleCreateInfo createInfo = { 0 };
-    createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    createInfo.codeSize = shaderCodeSize;
-    createInfo.pCode = (uint32_t*)shaderCode;
-
-    return vkCreateShaderModule(device, &createInfo, NULL, shaderModule);
-}
-
 VkResult createGraphicsPipeline(
     VkDevice device,
     VkExtent2D swapChainExtent,
@@ -578,16 +429,12 @@ VkResult createGraphicsPipeline(
 
     size_t size;
     const char *vertShaderCode = read_file_bytes("shaders/vert.spv", &size);
-    fprintf(stderr, "vertex shader size: %zu\n", size);
-
     VkShaderModule vertShaderModule;
     result = createShaderModule(device, vertShaderCode, size, &vertShaderModule);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create vertex shader module");
     free((void *) vertShaderCode);
 
     const char *fragShaderCode = read_file_bytes("shaders/frag.spv", &size);
-    fprintf(stderr, "fragment shader size: %zu\n", size);
-
     VkShaderModule fragShaderModule;
     result = createShaderModule(device, fragShaderCode, size, &fragShaderModule);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create fragment shader module");
@@ -971,6 +818,7 @@ VkResult renderInit() {
         surface,
         graphicsFamily,
         presentFamily,
+        initialWindowWidth, initialWindowHeight,
         &swapChain,
         &imageCount,
         &swapChainImages,

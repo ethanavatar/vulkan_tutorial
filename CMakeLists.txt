@@ -15,7 +15,7 @@ endif()
 set(CMAKE_BUILD_SHARED_LIBS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-add_executable(vulkan_tutorial vulkan_tutorial.c debug_messenger.c vulkan_extensions.c)
+add_executable(vulkan_tutorial vulkan_tutorial.c debug_messenger.c extensions.c shader_modules.c swap_chain.c)
 
 add_subdirectory(glfw)
 
