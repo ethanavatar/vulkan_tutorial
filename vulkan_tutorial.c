@@ -34,6 +34,7 @@ static const char* deviceExtensions[] = {
 
 const uint32_t initialWindowWidth = 800;
 const uint32_t initialWindowHeight = 600;
+const uint32_t maxFramesInFlight = 2;
 
 bool checkValidationLayers() {
     uint32_t layerCount;
@@ -44,8 +45,7 @@ bool checkValidationLayers() {
     if (layerCount == 0) return false;
 
     // Smh, MSVC, I can't use a VLA here
-    VkLayerProperties *availableLayers;
-    availableLayers = malloc(layerCount * sizeof(VkLayerProperties));
+    VkLayerProperties *availableLayers = alloca(layerCount * sizeof(VkLayerProperties));
     vkEnumerateInstanceLayerProperties(&layerCount, availableLayers);
 
     for (uint32_t i = 0; i < REQUESTED_VALIDATION_LAYERS; i++) {
@@ -63,14 +63,15 @@ bool checkValidationLayers() {
         }
     }
 
-    free(availableLayers);
     return true;
 }
 
 VkResult createInstance(
     VkInstance *Instance
 ) {
-    if (ENABLE_VALIDATION_LAYERS && !checkValidationLayers()) {
+    // This tricks MSVC into not thinking the conditional is constant
+    bool enableValidationLayers = ENABLE_VALIDATION_LAYERS;
+    if (enableValidationLayers && !checkValidationLayers()) {
         fprintf(stderr, "Validation layers requested, but not available\n");
         return VK_ERROR_LAYER_NOT_PRESENT;
     }
@@ -114,7 +115,7 @@ VkResult createInstance(
     const char* debugExtension = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
     if (ENABLE_VALIDATION_LAYERS) extensionCount++;
 
-    const char** extensions = malloc(extensionCount * sizeof(const char*));
+    const char** extensions = alloca(extensionCount * sizeof(const char*));
     for (uint32_t i = 0; i < glfwExtensionCount; i++) {
         extensions[i] = glfwExtensions[i];
     }
@@ -138,7 +139,7 @@ VkResult getQueueFamilies(
     vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, NULL);
 
     VkQueueFamilyProperties *queueFamilies;
-    queueFamilies = malloc(queueFamilyCount * sizeof(VkQueueFamilyProperties));
+    queueFamilies = alloca(queueFamilyCount * sizeof(VkQueueFamilyProperties));
     vkGetPhysicalDeviceQueueFamilyProperties(
         device,
         &queueFamilyCount,
@@ -148,12 +149,10 @@ VkResult getQueueFamilies(
     for (uint32_t i = 0; i < queueFamilyCount; i++) {
         if (queueFamilies[i].queueCount > 0 && queueFamilies[i].queueFlags & flags) {
             *graphicsFamily = i;
-            free(queueFamilies);
             return VK_SUCCESS;
         }
     }
 
-    free(queueFamilies);
     return VK_ERROR_INITIALIZATION_FAILED;
 }
 
@@ -166,7 +165,7 @@ VkResult getPresentQueueFamilies(
     vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, NULL);
 
     VkQueueFamilyProperties *queueFamilies;
-    queueFamilies = malloc(queueFamilyCount * sizeof(VkQueueFamilyProperties));
+    queueFamilies = alloca(queueFamilyCount * sizeof(VkQueueFamilyProperties));
     vkGetPhysicalDeviceQueueFamilyProperties(
         device,
         &queueFamilyCount,
@@ -178,12 +177,10 @@ VkResult getPresentQueueFamilies(
         vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
         if (queueFamilies[i].queueCount > 0 && presentSupport) {
             *presentFamily = i;
-            free(queueFamilies);
             return VK_SUCCESS;
         }
     }
 
-    free(queueFamilies);
     return VK_ERROR_INITIALIZATION_FAILED;
 }
 
@@ -227,8 +224,7 @@ int scoreDeviceCapabilities(
     uint32_t extensionCount;
     vkEnumerateDeviceExtensionProperties(device, NULL, &extensionCount, NULL);
 
-    VkExtensionProperties *availableExtensions;
-    availableExtensions = malloc(extensionCount * sizeof(VkExtensionProperties));
+    VkExtensionProperties *availableExtensions = alloca(extensionCount * sizeof(VkExtensionProperties));
     vkEnumerateDeviceExtensionProperties(device, NULL, &extensionCount, availableExtensions);
 
     for (uint32_t i = 0; i < REQUESTED_DEVICE_EXTENSIONS; i++) {
@@ -241,7 +237,6 @@ int scoreDeviceCapabilities(
         }
 
         if (!extensionFound) {
-            free(availableExtensions);
             return 0;
         }
     }
@@ -250,25 +245,21 @@ int scoreDeviceCapabilities(
     VkSurfaceCapabilitiesKHR capabilities;
     VkResult result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &capabilities);
     if (result != VK_SUCCESS) {
-        free(availableExtensions);
         return 0;
     }
 
     uint32_t formatCount;
     vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, NULL);
     if (formatCount == 0) {
-        free(availableExtensions);
         return 0;
     }
 
     uint32_t presentModeCount;
     vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, NULL);
     if (presentModeCount == 0) {
-        free(availableExtensions);
         return 0;
     }
 
-    free(availableExtensions);
     return score;
 }
 
@@ -287,7 +278,7 @@ VkResult getPhysicalDevice(
         return VK_ERROR_INITIALIZATION_FAILED;
     }
 
-    VkPhysicalDevice *devices = malloc(deviceCount * sizeof(VkPhysicalDevice));
+    VkPhysicalDevice *devices = alloca(deviceCount * sizeof(VkPhysicalDevice));
     vkEnumeratePhysicalDevices(instance, &deviceCount, devices);
 
     // Find the device with the highest score
@@ -307,7 +298,6 @@ VkResult getPhysicalDevice(
     }
 
     *physicalDevice = devices[bestIndex];
-    free(devices);
 
     return VK_SUCCESS;
 }
@@ -420,25 +410,21 @@ VkResult createSwapChain(
     if (formatCount == 0) return VK_ERROR_INITIALIZATION_FAILED;
 
     VkSurfaceFormatKHR *availableFormats;
-    availableFormats = malloc(formatCount * sizeof(VkSurfaceFormatKHR));
+    availableFormats = alloca(formatCount * sizeof(VkSurfaceFormatKHR));
     vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, availableFormats);
 
     VkFormat imageFormat = chooseSwapSurfaceFormat(availableFormats, formatCount).format;
     VkColorSpaceKHR colorSpace = chooseSwapSurfaceFormat(availableFormats, formatCount).colorSpace;
-
-    free(availableFormats);
 
     uint32_t presentModeCount;
     vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, NULL);
     if (presentModeCount == 0) return VK_ERROR_INITIALIZATION_FAILED;
 
     VkPresentModeKHR *availablePresentModes;
-    availablePresentModes = malloc(presentModeCount * sizeof(VkPresentModeKHR));
+    availablePresentModes = alloca(presentModeCount * sizeof(VkPresentModeKHR));
     vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, availablePresentModes);
 
     VkPresentModeKHR presentMode = chooseSwapPresentMode(availablePresentModes, presentModeCount);
-
-    free(availablePresentModes);
 
     VkExtent2D extent = chooseSwapExtent(capabilities);
 
@@ -597,6 +583,7 @@ VkResult createGraphicsPipeline(
     VkShaderModule vertShaderModule;
     result = createShaderModule(device, vertShaderCode, size, &vertShaderModule);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create vertex shader module");
+    free((void *) vertShaderCode);
 
     const char *fragShaderCode = read_file_bytes("shaders/frag.spv", &size);
     fprintf(stderr, "fragment shader size: %zu\n", size);
@@ -604,6 +591,7 @@ VkResult createGraphicsPipeline(
     VkShaderModule fragShaderModule;
     result = createShaderModule(device, fragShaderCode, size, &fragShaderModule);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create fragment shader module");
+    free((void *) fragShaderCode);
 
     VkPipelineShaderStageCreateInfo vertShaderStageInfo = { 0 };
     vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -768,18 +756,19 @@ VkResult createCommandPool(
     return vkCreateCommandPool(device, &poolInfo, NULL, commandPool);
 }
 
-VkResult createCommandBuffer(
+VkResult createCommandBuffers(
     VkDevice device,
     VkCommandPool commandPool,
-    VkCommandBuffer *commandBuffer
+    VkCommandBuffer *commandBuffers[],
+    uint32_t commandBufferCount
 ) {
     VkCommandBufferAllocateInfo allocInfo = { 0 };
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.commandPool = commandPool;
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandBufferCount = 1;
+    allocInfo.commandBufferCount = commandBufferCount;
 
-    return vkAllocateCommandBuffers(device, &allocInfo, commandBuffer);
+    return vkAllocateCommandBuffers(device, &allocInfo, *commandBuffers);
 }
 
 VkResult recordCommandBuffer(
@@ -840,9 +829,9 @@ VkResult recordCommandBuffer(
 
 VkResult createSyncObjects(
     VkDevice device,
-    VkSemaphore *imageAvailableSemaphore,
-    VkSemaphore *renderFinishedSemaphore,
-    VkFence *inFlightFence
+    VkSemaphore *imageAvailableSemaphores[],
+    VkSemaphore *renderFinishedSemaphores[],
+    VkFence *inFlightFences[]
 ) {
     VkResult result = VK_SUCCESS;
 
@@ -853,14 +842,16 @@ VkResult createSyncObjects(
     fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-    result = vkCreateSemaphore(device, &semaphoreInfo, NULL, imageAvailableSemaphore);
-    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create image available semaphore");
+    for (uint32_t i = 0; i < maxFramesInFlight; i++) {
+        result = vkCreateSemaphore(device, &semaphoreInfo, NULL, &(*imageAvailableSemaphores)[i]);
+        if (result != VK_SUCCESS) return result;
 
-    result = vkCreateSemaphore(device, &semaphoreInfo, NULL, renderFinishedSemaphore);
-    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create render finished semaphore");
+        result = vkCreateSemaphore(device, &semaphoreInfo, NULL, &(*renderFinishedSemaphores)[i]);
+        if (result != VK_SUCCESS) return result;
 
-    result = vkCreateFence(device, &fenceInfo, NULL, inFlightFence);
-    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create in-flight fence");
+        result = vkCreateFence(device, &fenceInfo, NULL, &(*inFlightFences)[i]);
+        if (result != VK_SUCCESS) return result;
+    }
 
     return result;
 }
@@ -892,11 +883,13 @@ static struct RenderState {
 
     VkFramebuffer *swapChainFramebuffers;
     VkCommandPool commandPool;
-    VkCommandBuffer commandBuffer;
+    VkCommandBuffer *commandBuffers;
 
-    VkSemaphore imageAvailableSemaphore;
-    VkSemaphore renderFinishedSemaphore;
-    VkFence inFlightFence;
+    VkSemaphore *imageAvailableSemaphores;
+    VkSemaphore *renderFinishedSemaphores;
+    VkFence *inFlightFences;
+
+    uint32_t currentFrame;
 } state;
 
 VkResult renderInit() {
@@ -1026,46 +1019,46 @@ VkResult renderInit() {
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create command pool");
     state.commandPool = commandPool;
 
-    VkCommandBuffer commandBuffer;
-    result = createCommandBuffer(device, commandPool, &commandBuffer);
+    VkCommandBuffer *commandBuffers = malloc(sizeof(VkCommandBuffer) * maxFramesInFlight);
+    result = createCommandBuffers(device, commandPool, &commandBuffers, maxFramesInFlight);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create command buffer");
-    state.commandBuffer = commandBuffer;
+    state.commandBuffers = commandBuffers;
 
-    VkSemaphore imageAvailableSemaphore;
-    VkSemaphore renderFinishedSemaphore;
-    VkFence inFlightFence;
+    VkSemaphore *imageAvailableSemaphores = malloc(sizeof(VkSemaphore) * maxFramesInFlight);
+    VkSemaphore *renderFinishedSemaphores = malloc(sizeof(VkSemaphore) * maxFramesInFlight);
+    VkFence *inFlightFences = malloc(sizeof(VkFence) * maxFramesInFlight);
     result = createSyncObjects(
         device,
-        &imageAvailableSemaphore,
-        &renderFinishedSemaphore,
-        &inFlightFence
+        &imageAvailableSemaphores,
+        &renderFinishedSemaphores,
+        &inFlightFences
     );
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create sync objects");
-    state.imageAvailableSemaphore = imageAvailableSemaphore;
-    state.renderFinishedSemaphore = renderFinishedSemaphore;
-    state.inFlightFence = inFlightFence;
+    state.imageAvailableSemaphores = imageAvailableSemaphores;
+    state.renderFinishedSemaphores = renderFinishedSemaphores;
+    state.inFlightFences = inFlightFences;
 
     fprintf(stderr, "Vulkan context initialized successfully\n");
     return VK_SUCCESS;
 }
 
 void drawFrame() {
-    vkWaitForFences(state.device, 1, &state.inFlightFence, VK_TRUE, UINT64_MAX);
-    vkResetFences(state.device, 1, &state.inFlightFence);
+    vkWaitForFences(state.device, 1, &state.inFlightFences[state.currentFrame], VK_TRUE, UINT64_MAX);
+    vkResetFences(state.device, 1, &state.inFlightFences[state.currentFrame]);
 
     uint32_t imageIndex;
     VkResult result = vkAcquireNextImageKHR(
         state.device,
         state.swapChain,
         UINT64_MAX,
-        state.imageAvailableSemaphore,
+        state.imageAvailableSemaphores[state.currentFrame],
         VK_NULL_HANDLE,
         &imageIndex
     );
 
-    vkResetCommandBuffer(state.commandBuffer, 0);
+    vkResetCommandBuffer(state.commandBuffers[state.currentFrame], 0);
     result = recordCommandBuffer(
-        state.commandBuffer,
+        state.commandBuffers[state.currentFrame],
         imageIndex,
         state.renderPass,
         state.swapChainFramebuffers,
@@ -1080,20 +1073,20 @@ void drawFrame() {
     VkSubmitInfo submitInfo = { 0 };
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-    VkSemaphore waitSemaphores[] = { state.imageAvailableSemaphore };
+    VkSemaphore waitSemaphores[] = { state.imageAvailableSemaphores[state.currentFrame] };
     VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
     submitInfo.waitSemaphoreCount = 1;
     submitInfo.pWaitSemaphores = waitSemaphores;
     submitInfo.pWaitDstStageMask = waitStages;
 
     submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &state.commandBuffer;
+    submitInfo.pCommandBuffers = state.commandBuffers;
 
-    VkSemaphore signalSemaphores[] = { state.renderFinishedSemaphore };
+    VkSemaphore signalSemaphores[] = { state.renderFinishedSemaphores[state.currentFrame] };
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores = signalSemaphores;
 
-    result = vkQueueSubmit(state.deviceQueue, 1, &submitInfo, state.inFlightFence);
+    result = vkQueueSubmit(state.deviceQueue, 1, &submitInfo, state.inFlightFences[state.currentFrame]);
     if (result != VK_SUCCESS) {
         fprintf(stderr, "Failed to submit draw command buffer\n");
         return;
@@ -1111,6 +1104,12 @@ void drawFrame() {
     presentInfo.pResults = NULL;
 
     result = vkQueuePresentKHR(state.presentQueue, &presentInfo);
+    if (result != VK_SUCCESS) {
+        fprintf(stderr, "Failed to present swap chain image\n");
+        return;
+    }
+
+    state.currentFrame = (state.currentFrame + 1) % maxFramesInFlight;
 }
 
 void vulkanCleanup() {
@@ -1123,11 +1122,16 @@ void vulkanCleanup() {
         UNUSED_INTENTIONAL(result);
     }
 
-    vkDestroySemaphore(state.device, state.renderFinishedSemaphore, NULL);
-    vkDestroySemaphore(state.device, state.imageAvailableSemaphore, NULL);
-    vkDestroyFence(state.device, state.inFlightFence, NULL);
+    for (uint32_t i = 0; i < maxFramesInFlight; i++) {
+        vkDestroySemaphore(state.device, state.renderFinishedSemaphores[i], NULL);
+        vkDestroySemaphore(state.device, state.imageAvailableSemaphores[i], NULL);
+        vkDestroyFence(state.device, state.inFlightFences[i], NULL);
+    }
+    free(state.renderFinishedSemaphores);
+    free(state.imageAvailableSemaphores);
+    free(state.inFlightFences);
 
-    vkFreeCommandBuffers(state.device, state.commandPool, 1, &state.commandBuffer);
+    vkFreeCommandBuffers(state.device, state.commandPool, 1, state.commandBuffers);
     vkDestroyCommandPool(state.device, state.commandPool, NULL);
 
     for (uint32_t i = 0; i < state.swapChainImageCount; i++) {
@@ -1144,6 +1148,8 @@ void vulkanCleanup() {
     vkDestroyPipelineLayout(state.device, state.pipelineLayout, NULL);
     vkDestroyRenderPass(state.device, state.renderPass, NULL);
 
+    free(state.swapChainImages);
+
     vkDestroySwapchainKHR(state.device, state.swapChain, NULL);
     vkDestroyDevice(state.device, NULL);
     vkDestroySurfaceKHR(state.instance, state.windowSurface, NULL);
@@ -1153,6 +1159,23 @@ void vulkanCleanup() {
     glfwTerminate();
 }
 
+void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+    UNUSED_INTENTIONAL(scancode);
+    UNUSED_INTENTIONAL(mods);
+    if (action == GLFW_PRESS) {
+        switch (key) {
+        case GLFW_KEY_ESCAPE: {
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
+        } break;
+        case GLFW_KEY_R: {
+            fprintf(stderr, "Reloading shaders...\n");
+            TODO("Reload shaders");
+        } break;
+        default: break;
+        }
+    }
+}
+
 int main(void) {
     VkResult result = renderInit();
     if (result != VK_SUCCESS) {
@@ -1160,6 +1183,8 @@ int main(void) {
         fprintf(stderr, "Failed to initialize Vulkan: %s\n", result_str);
         exit(1);
     }
+
+    glfwSetKeyCallback(state.window, key_callback);
 
     while (!glfwWindowShouldClose(state.window)) {
         glfwPollEvents();

@@ -23,10 +23,10 @@ size_t file_size(FILE *file) {
 	return file_stat.st_size;
 }
 
-int read_all_bytes(FILE *file, char *buffer, size_t bytes) {
+int read_all_bytes(FILE *const file, char *buffer, size_t bytes) {
 	if (!file) return 0;
 
-	size_t read_bytes = fread(buffer, 1, bytes, file);
+	size_t read_bytes = fread(buffer, sizeof(char), bytes, file);
 	if (read_bytes != bytes) {
 		fprintf(stderr, "Error reading file\n");
 		return 0;
