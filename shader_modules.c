@@ -1,7 +1,3 @@
-#pragma once
-#ifndef SHADER_MODULES_H
-#define SHADER_MODULES_H
-
 #include <vulkan/vulkan.h>
 //#include <shaderc/shaderc.h>
 
@@ -18,6 +14,4 @@ VkResult createShaderModule(
 
     return vkCreateShaderModule(device, &createInfo, NULL, shaderModule);
 }
-
-#endif // SHADER_MODULES_H
 

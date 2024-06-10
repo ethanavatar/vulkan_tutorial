@@ -25,7 +25,7 @@
 #include <math.h>
 
 #define REQUESTED_VALIDATION_LAYERS 1
-const char* validationLayers[REQUESTED_VALIDATION_LAYERS] = {
+static const char* validationLayers[REQUESTED_VALIDATION_LAYERS] = {
     "VK_LAYER_KHRONOS_validation"
 };
 
@@ -38,7 +38,7 @@ const uint32_t initialWindowWidth = 800;
 const uint32_t initialWindowHeight = 600;
 const uint32_t maxFramesInFlight = 2;
 
-bool checkValidationLayers() {
+bool checkValidationLayers(void) {
     uint32_t layerCount;
     vkEnumerateInstanceLayerProperties(&layerCount, NULL);
 
@@ -644,7 +644,7 @@ VkResult recordCommandBuffer(
     renderPassInfo.renderArea.offset = (VkOffset2D) { 0, 0 };
     renderPassInfo.renderArea.extent = swapChainExtent;
 
-    VkClearValue clearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+    VkClearValue clearColor = { .color = { { 0.0f, 0.0f, 0.0f, 1.0f } } };
     renderPassInfo.clearValueCount = 1;
     renderPassInfo.pClearValues = &clearColor;
 
@@ -739,7 +739,7 @@ static struct RenderState {
     uint32_t currentFrame;
 } state;
 
-VkResult renderInit() {
+VkResult renderInit(void) {
     if (!glfwInit()) {
         fprintf(stderr, "Failed to initialize GLFW\n");
         exit(1);
@@ -890,7 +890,7 @@ VkResult renderInit() {
     return VK_SUCCESS;
 }
 
-void drawFrame() {
+void drawFrame(void) {
     vkWaitForFences(state.device, 1, &state.inFlightFences[state.currentFrame], VK_TRUE, UINT64_MAX);
     vkResetFences(state.device, 1, &state.inFlightFences[state.currentFrame]);
 
@@ -960,7 +960,7 @@ void drawFrame() {
     state.currentFrame = (state.currentFrame + 1) % maxFramesInFlight;
 }
 
-void vulkanCleanup() {
+void vulkanCleanup(void) {
     fprintf(stderr, "Cleaning up Vulkan\n");
     if (ENABLE_VALIDATION_LAYERS) {
         VkResult result = cleanupDebugMessenger(

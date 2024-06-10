@@ -2,6 +2,7 @@
 #include <cglm/cglm.h>
 
 #include <assert.h>
+#include <stdlib.h>
 
 #include "defines.h"
 
@@ -115,19 +116,26 @@ static VkPresentModeKHR getPresentMode(VkPhysicalDevice physicalDevice, VkSurfac
     return mode;
 }
 
+// Usually you'd use fmax/fmin for this but
+// MSVC doesn't allow implicit conversions from uint32_t into fmax/fmin
+// so it has max/min which are not standard
+// TODO: These are unsafe because they can cause double evaluation
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+
 static VkExtent2D chooseExtent(VkSurfaceCapabilitiesKHR capabilities, uint32_t width, uint32_t height) {
     if (capabilities.currentExtent.width != UINT32_MAX) {
         return capabilities.currentExtent;
     }
 
     return (VkExtent2D) {
-        .width = max(
+        .width = MAX(
             capabilities.minImageExtent.width,
-            min(capabilities.maxImageExtent.width, width)
+            MIN(capabilities.maxImageExtent.width, width)
         ),
-        .height = max(
+        .height = MAX(
             capabilities.minImageExtent.height,
-            min(capabilities.maxImageExtent.height, height)
+            MIN(capabilities.maxImageExtent.height, height)
         )
     };
 }

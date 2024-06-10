@@ -5,10 +5,24 @@ set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
+
+set(GLFW_BUILD_DOCS OFF)
+set(GLFW_BUILD_EXAMPLES OFF)
+set(GLFW_BUILD_TESTS OFF)
+set(GLFW_VULKAN_STATIC ON)
+set(GLFW_USE_MSVC_RUNTIME_LIBRARY_DLL OFF)
+add_subdirectory(glfw)
+
+set(CGLM_STATIC ON)
+set(CGLM_SHARED OFF)
+add_subdirectory(cglm)
+
 if (MSVC)
+    message("MSVC")
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /W4 /WX")
 else()
+    message("GCC")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Werror -Wpedantic")
 endif()
 
@@ -16,12 +30,6 @@ set(CMAKE_BUILD_SHARED_LIBS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 add_executable(vulkan_tutorial vulkan_tutorial.c debug_messenger.c extensions.c shader_modules.c swap_chain.c)
-
-add_subdirectory(glfw)
-
-set(CGLM_STATIC ON)
-set(CGLM_SHARED OFF)
-add_subdirectory(cglm)
 
 target_include_directories(glfw PRIVATE $ENV{VULKAN_SDK}/Include)
 
