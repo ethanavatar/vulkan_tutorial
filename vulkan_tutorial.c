@@ -684,6 +684,10 @@ static struct RenderState {
     VkQueue deviceQueue;
     VkQueue presentQueue;
 
+    uint32_t graphicsFamily;
+    uint32_t presentFamily;
+
+    bool framebufferResized;
     struct SwapChain swapChain;
 
     VkRenderPass renderPass;
@@ -706,10 +710,20 @@ VkResult recreateSwapChain(
     VkSurfaceKHR surface,
     uint32_t graphicsFamily,
     uint32_t presentFamily,
-    uint32_t width, uint32_t height,
-    struct SwapChain *swapChain,
-    VkRenderPass renderPass
+    VkRenderPass renderPass,
+    struct SwapChain *swapChain
 ) {
+    int width = 0, height = 0;
+    glfwGetFramebufferSize(state.window, &width, &height);
+    while (width == 0 || height == 0) {
+        glfwGetFramebufferSize(state.window, &width, &height);
+        glfwWaitEvents();
+    }
+
+    fprintf(stderr, "New dimensions: %dx%d\n", width, height);
+
+    vkDeviceWaitIdle(device);
+
     VkResult result;
     cleanupSwapChain(device, swapChain);
     result = createSwapChain(
@@ -746,6 +760,7 @@ VkResult renderInit(void) {
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    FIXME("Crashes during window resizing. Resizable window is disabled for now.");
 
     GLFWwindow* window = glfwCreateWindow(
         initialWindowWidth,
@@ -784,6 +799,7 @@ VkResult renderInit(void) {
     VkQueueFlags flags = VK_QUEUE_GRAPHICS_BIT;
     result = getQueueFamilies(physicalDevice, flags, &graphicsFamily);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to get graphics queue family");
+    state.graphicsFamily = graphicsFamily;
 
     VkDevice device;
     result = createLogicalDevice(physicalDevice, graphicsFamily, &device);
@@ -797,6 +813,7 @@ VkResult renderInit(void) {
     uint32_t presentFamily;
     result = getPresentQueueFamilies(physicalDevice, surface, &presentFamily);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to get present queue family");
+    state.presentFamily = presentFamily;
 
     VkQueue presentQueue;
     vkGetDeviceQueue(device, presentFamily, 0, &presentQueue);
@@ -869,7 +886,6 @@ VkResult renderInit(void) {
 
 void drawFrame(void) {
     vkWaitForFences(state.device, 1, &state.inFlightFences[state.currentFrame], VK_TRUE, UINT64_MAX);
-    vkResetFences(state.device, 1, &state.inFlightFences[state.currentFrame]);
 
     uint32_t imageIndex;
     VkResult result = vkAcquireNextImageKHR(
@@ -881,8 +897,31 @@ void drawFrame(void) {
         &imageIndex
     );
 
-    TODO("Handle VK_ERROR_OUT_OF_DATE_KHR and VK_SUBOPTIMAL_KHR");
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || state.framebufferResized) {
+        if (state.framebufferResized) {
+            state.framebufferResized = false;
+            fprintf(stderr, "Recreating swap chain. Reason: Framebuffer resized\n");
+        } else {
+            const char *result_str = string_VkResult(result);
+            fprintf(stderr, "Recreating swap chain. Reason: %s\n", result_str);
+        }
+        recreateSwapChain(
+            state.physicalDevice,
+            state.device,
+            state.windowSurface,
+            state.graphicsFamily,
+            state.presentFamily,
+            state.renderPass,
+            &state.swapChain
+        );
+        return;
+    } else if (result != VK_SUCCESS) {
+        const char *result_str = string_VkResult(result);
+        fprintf(stderr, "Failed to acquire swap chain image. Reason: %s\n", result_str);
+        return;
+    }
 
+    vkResetFences(state.device, 1, &state.inFlightFences[state.currentFrame]);
     vkResetCommandBuffer(state.commandBuffers[state.currentFrame], 0);
     result = recordCommandBuffer(
         state.commandBuffers[state.currentFrame],
@@ -975,7 +1014,7 @@ void vulkanCleanup(void) {
     glfwTerminate();
 }
 
-void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
     UNUSED_INTENTIONAL(scancode);
     UNUSED_INTENTIONAL(mods);
     if (action == GLFW_PRESS) {
@@ -992,6 +1031,13 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
     }
 }
 
+static void framebuffer_resize_callback(GLFWwindow* window, int width, int height) {
+    UNUSED_INTENTIONAL(window);
+    UNUSED_INTENTIONAL(width);
+    UNUSED_INTENTIONAL(height);
+    state.framebufferResized = true;
+}
+
 int main(void) {
     VkResult result = renderInit();
     if (result != VK_SUCCESS) {
@@ -1001,6 +1047,7 @@ int main(void) {
     }
 
     glfwSetKeyCallback(state.window, key_callback);
+    glfwSetFramebufferSizeCallback(state.window, framebuffer_resize_callback);
 
     while (!glfwWindowShouldClose(state.window)) {
         glfwPollEvents();

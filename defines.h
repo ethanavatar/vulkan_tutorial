@@ -19,6 +19,9 @@
 #define TODO(comment) {\
     fprintf(stderr, "TODO (%s:%d): %s\n", __FILE__, __LINE__, comment); }
 
+#define FIXME(comment) {\
+    fprintf(stderr, "FIXME (%s:%d): %s\n", __FILE__, __LINE__, comment); }
+
 #define RETURN_IF_NOT_VK_SUCCESS(R, MSG) do {\
     if (R != VK_SUCCESS) {\
         fprintf(stderr, "Error: %s\n", MSG);\
