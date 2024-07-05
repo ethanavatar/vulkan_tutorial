@@ -340,39 +340,6 @@ VkResult createLogicalDevice(
     return vkCreateDevice(physicalDevice, &deviceCreateInfo, NULL, device);
 }
 
-VkResult createImageViews(
-    VkDevice device,
-    VkImage *swapChainImages,
-    uint32_t imageCount,
-    VkFormat imageFormat,
-    VkImageView *swapChainImageViews
-) {
-    VkResult result = VK_SUCCESS;
-    for (uint32_t i = 0; i < imageCount; i++) {
-        VkImageViewCreateInfo createInfo = { 0 };
-        createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        createInfo.image = swapChainImages[i];
-        createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        createInfo.format = imageFormat;
-
-        createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-        createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-        createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-        createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-
-        createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        createInfo.subresourceRange.baseMipLevel = 0;
-        createInfo.subresourceRange.levelCount = 1;
-        createInfo.subresourceRange.baseArrayLayer = 0;
-        createInfo.subresourceRange.layerCount = 1;
-
-        result = vkCreateImageView(device, &createInfo, NULL, &swapChainImageViews[i]);
-        if (result != VK_SUCCESS) break;
-    }
-
-    return result;
-}
-
 VkResult createRenderPass(
     VkDevice device,
     VkFormat imageFormat,
@@ -717,18 +684,12 @@ static struct RenderState {
     VkQueue deviceQueue;
     VkQueue presentQueue;
 
-    VkSwapchainKHR swapChain;
-    uint32_t swapChainImageCount;
-    VkImage *swapChainImages;
-    VkFormat swapChainImageFormat;
-    VkExtent2D swapChainExtent;
-    VkImageView *swapChainImageViews;
+    struct SwapChain swapChain;
 
     VkRenderPass renderPass;
     VkPipelineLayout pipelineLayout;
     VkPipeline graphicsPipeline;
 
-    VkFramebuffer *swapChainFramebuffers;
     VkCommandPool commandPool;
     VkCommandBuffer *commandBuffers;
 
@@ -805,13 +766,7 @@ VkResult renderInit(void) {
     vkGetDeviceQueue(device, presentFamily, 0, &presentQueue);
     state.presentQueue = presentQueue;
 
-    VkSwapchainKHR swapChain;
-    uint32_t imageCount;
-    VkImage *swapChainImages;
-    VkFormat swapChainImageFormat;
-    VkExtent2D swapChainExtent;
-
-    TODO("Fix this abomination of a function signature");
+    struct SwapChain swapChain;
     result = createSwapChain(
         physicalDevice,
         device,
@@ -819,48 +774,34 @@ VkResult renderInit(void) {
         graphicsFamily,
         presentFamily,
         initialWindowWidth, initialWindowHeight,
-        &swapChain,
-        &imageCount,
-        &swapChainImages,
-        &swapChainImageFormat,
-        &swapChainExtent
+        &swapChain
     );
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create swap chain");
     state.swapChain = swapChain;
-    state.swapChainImageCount = imageCount;
-    state.swapChainImages = swapChainImages;
-    state.swapChainImageFormat = swapChainImageFormat;
-    state.swapChainExtent = swapChainExtent;
-
-    VkImageView *swapChainImageViews;
-    swapChainImageViews = malloc(imageCount * sizeof(VkImageView));
-    result = createImageViews(device, swapChainImages, imageCount, swapChainImageFormat, swapChainImageViews);
-    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create image views");
-    state.swapChainImageViews = swapChainImageViews;
 
     VkRenderPass renderPass;
-    result = createRenderPass(device, swapChainImageFormat, &renderPass);
+    result = createRenderPass(device, swapChain.imageFormat, &renderPass);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create render pass");
     state.renderPass = renderPass;
 
     VkPipelineLayout pipelineLayout;
     VkPipeline graphicsPipeline;
-    result = createGraphicsPipeline(device, swapChainExtent, renderPass, &pipelineLayout, &graphicsPipeline);
+    result = createGraphicsPipeline(device, swapChain.extent, renderPass, &pipelineLayout, &graphicsPipeline);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create graphics pipeline");
     state.pipelineLayout = pipelineLayout;
     state.graphicsPipeline = graphicsPipeline;
 
-    VkFramebuffer *swapChainFramebuffers = malloc(imageCount * sizeof(VkFramebuffer));
+    VkFramebuffer *framebuffers = malloc(swapChain.imageCount * sizeof(VkFramebuffer));
     result = createFramebuffers(
         device,
         renderPass,
-        swapChainExtent,
-        swapChainImageViews,
-        imageCount,
-        swapChainFramebuffers
+        swapChain.extent,
+        swapChain.imageViews,
+        swapChain.imageCount,
+        framebuffers
     );
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create framebuffers");
-    state.swapChainFramebuffers = swapChainFramebuffers;
+    state.swapChain.framebuffers = framebuffers;
 
     VkCommandPool commandPool;
     result = createCommandPool(device, graphicsFamily, &commandPool);
@@ -897,7 +838,7 @@ void drawFrame(void) {
     uint32_t imageIndex;
     VkResult result = vkAcquireNextImageKHR(
         state.device,
-        state.swapChain,
+        state.swapChain.vkSwapChain,
         UINT64_MAX,
         state.imageAvailableSemaphores[state.currentFrame],
         VK_NULL_HANDLE,
@@ -909,8 +850,8 @@ void drawFrame(void) {
         state.commandBuffers[state.currentFrame],
         imageIndex,
         state.renderPass,
-        state.swapChainFramebuffers,
-        state.swapChainExtent,
+        state.swapChain.framebuffers,
+        state.swapChain.extent,
         state.graphicsPipeline
     );
     if (result != VK_SUCCESS) {
@@ -945,7 +886,7 @@ void drawFrame(void) {
     presentInfo.waitSemaphoreCount = 1;
     presentInfo.pWaitSemaphores = signalSemaphores;
 
-    VkSwapchainKHR swapChains[] = { state.swapChain };
+    VkSwapchainKHR swapChains[] = { state.swapChain.vkSwapChain };
     presentInfo.swapchainCount = 1;
     presentInfo.pSwapchains = swapChains;
     presentInfo.pImageIndices = &imageIndex;
@@ -982,17 +923,7 @@ void vulkanCleanup(void) {
     vkFreeCommandBuffers(state.device, state.commandPool, 1, state.commandBuffers);
     vkDestroyCommandPool(state.device, state.commandPool, NULL);
 
-
-    struct SwapChain swapChain = {
-        .swapChain = state.swapChain,
-        .imageCount = state.swapChainImageCount,
-        .images = state.swapChainImages,
-        .imageViews = state.swapChainImageViews,
-        .framebuffers = state.swapChainFramebuffers,
-        .imageFormat = state.swapChainImageFormat,
-        .extent = state.swapChainExtent
-    };
-    cleanupSwapChain(state.device, swapChain);
+    cleanupSwapChain(state.device, state.swapChain);
 
     vkDestroyPipeline(state.device, state.graphicsPipeline, NULL);
     vkDestroyPipelineLayout(state.device, state.pipelineLayout, NULL);

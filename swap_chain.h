@@ -5,7 +5,7 @@
 #include <vulkan/vulkan.h>
 
 struct SwapChain {
-    VkSwapchainKHR swapChain;
+    VkSwapchainKHR vkSwapChain;
     uint32_t imageCount;
     VkImage *images;             // has `imageCount` elements
     VkImageView *imageViews;     // has `imageCount` elements
@@ -21,11 +21,7 @@ VkResult createSwapChain(
     uint32_t graphicsFamily,
     uint32_t presentFamily,
     uint32_t width, uint32_t height,
-    VkSwapchainKHR *swapChain,
-    uint32_t *swapChainImageCount,
-    VkImage **swapChainImages,
-    VkFormat *swapChainImageFormat,
-    VkExtent2D *swapChainExtent
+    struct SwapChain *swapChain
 );
 
 void cleanupSwapChain(
