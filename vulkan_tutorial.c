@@ -700,6 +700,42 @@ static struct RenderState {
     uint32_t currentFrame;
 } state;
 
+VkResult recreateSwapChain(
+    VkPhysicalDevice physicalDevice,
+    VkDevice device,
+    VkSurfaceKHR surface,
+    uint32_t graphicsFamily,
+    uint32_t presentFamily,
+    uint32_t width, uint32_t height,
+    struct SwapChain *swapChain,
+    VkRenderPass renderPass
+) {
+    VkResult result;
+    cleanupSwapChain(device, swapChain);
+    result = createSwapChain(
+        physicalDevice,
+        device,
+        surface,
+        graphicsFamily,
+        presentFamily,
+        width,
+        height,
+        swapChain
+    );
+    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to recreate swap chain");
+
+    result = createFramebuffers(
+        device,
+        renderPass,
+        swapChain->extent,
+        swapChain->imageViews,
+        swapChain->imageCount,
+        swapChain->framebuffers
+    );
+    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to recreate framebuffers");
+    return VK_SUCCESS;
+}
+
 VkResult renderInit(void) {
     if (!glfwInit()) {
         fprintf(stderr, "Failed to initialize GLFW\n");
@@ -845,6 +881,8 @@ void drawFrame(void) {
         &imageIndex
     );
 
+    TODO("Handle VK_ERROR_OUT_OF_DATE_KHR and VK_SUBOPTIMAL_KHR");
+
     vkResetCommandBuffer(state.commandBuffers[state.currentFrame], 0);
     result = recordCommandBuffer(
         state.commandBuffers[state.currentFrame],
@@ -923,7 +961,7 @@ void vulkanCleanup(void) {
     vkFreeCommandBuffers(state.device, state.commandPool, 1, state.commandBuffers);
     vkDestroyCommandPool(state.device, state.commandPool, NULL);
 
-    cleanupSwapChain(state.device, state.swapChain);
+    cleanupSwapChain(state.device, &state.swapChain);
 
     vkDestroyPipeline(state.device, state.graphicsPipeline, NULL);
     vkDestroyPipelineLayout(state.device, state.pipelineLayout, NULL);
@@ -949,7 +987,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
             fprintf(stderr, "Reloading shaders...\n");
             TODO("Reload shaders");
         } break;
-        default: break;
+        default: { } break;
         }
     }
 }

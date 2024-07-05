@@ -94,19 +94,19 @@ VkResult createSwapChain(
 
 void cleanupSwapChain(
     VkDevice device,
-    struct SwapChain swapChain
+    struct SwapChain *swapChain
 ) {
-    for (uint32_t i = 0; i < swapChain.imageCount; i++) {
-        vkDestroyFramebuffer(device, swapChain.framebuffers[i], NULL);
+    for (uint32_t i = 0; i < swapChain->imageCount; i++) {
+        vkDestroyFramebuffer(device, swapChain->framebuffers[i], NULL);
     }
-    free(swapChain.framebuffers);
+    free(swapChain->framebuffers);
 
-    for (uint32_t i = 0; i < swapChain.imageCount; i++) {
-        vkDestroyImageView(device, swapChain.imageViews[i], NULL);
+    for (uint32_t i = 0; i < swapChain->imageCount; i++) {
+        vkDestroyImageView(device, swapChain->imageViews[i], NULL);
     }
-    free(swapChain.imageViews);
-    free(swapChain.images);
-    vkDestroySwapchainKHR(device, swapChain.vkSwapChain, NULL);
+    free(swapChain->imageViews);
+    free(swapChain->images);
+    vkDestroySwapchainKHR(device, swapChain->vkSwapChain, NULL);
 }
 
 static VkSurfaceFormatKHR getSurfaceFormat(

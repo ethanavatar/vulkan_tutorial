@@ -26,7 +26,7 @@ VkResult createSwapChain(
 
 void cleanupSwapChain(
     VkDevice device,
-    struct SwapChain swapChain
+    struct SwapChain *swapChain
 );
 
 #endif // SWAP_CHAIN_H
