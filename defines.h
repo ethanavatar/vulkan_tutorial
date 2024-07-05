@@ -5,9 +5,9 @@
 #include <vulkan/vulkan.h>
 
 #ifdef NDEBUG
-#    define ENABLE_VALIDATION_LAYERS false
+#   define ENABLE_VALIDATION_LAYERS false
 #else
-#    define ENABLE_VALIDATION_LAYERS true
+#   define ENABLE_VALIDATION_LAYERS true
 #endif
 
 #define STRINGIFY(x) #x
@@ -25,5 +25,10 @@
         return R;\
     }\
 } while(0)
+
+#if defined(_MSC_VER)
+#   include <malloc.h>
+#   define alloca _alloca
+#endif
 
 #endif // GLOBALS_H

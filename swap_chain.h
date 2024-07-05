@@ -4,6 +4,16 @@
 
 #include <vulkan/vulkan.h>
 
+struct SwapChain {
+    VkSwapchainKHR swapChain;
+    uint32_t imageCount;
+    VkImage *images;             // has `imageCount` elements
+    VkImageView *imageViews;     // has `imageCount` elements
+    VkFramebuffer *framebuffers; // has `imageCount` elements
+    VkFormat imageFormat;
+    VkExtent2D extent;
+};
+
 VkResult createSwapChain(
     VkPhysicalDevice physicalDevice,
     VkDevice device,
@@ -16,6 +26,11 @@ VkResult createSwapChain(
     VkImage **swapChainImages,
     VkFormat *swapChainImageFormat,
     VkExtent2D *swapChainExtent
+);
+
+void cleanupSwapChain(
+    VkDevice device,
+    struct SwapChain swapChain
 );
 
 #endif // SWAP_CHAIN_H

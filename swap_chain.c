@@ -1,10 +1,12 @@
 #include <vulkan/vulkan.h>
-#include <cglm/cglm.h>
+//#include <cglm/cglm.h>
 
 #include <assert.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 #include "defines.h"
+#include "swap_chain.h"
 
 // TODO: internal headers
 static VkSurfaceFormatKHR getSurfaceFormat(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface);
@@ -81,7 +83,27 @@ VkResult createSwapChain(
     return VK_SUCCESS;
 }
 
-static VkSurfaceFormatKHR getSurfaceFormat(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface) {
+void cleanupSwapChain(
+    VkDevice device,
+    struct SwapChain swapChain
+) {
+    for (uint32_t i = 0; i < swapChain.imageCount; i++) {
+        vkDestroyFramebuffer(device, swapChain.framebuffers[i], NULL);
+    }
+    free(swapChain.framebuffers);
+
+    for (uint32_t i = 0; i < swapChain.imageCount; i++) {
+        vkDestroyImageView(device, swapChain.imageViews[i], NULL);
+    }
+    free(swapChain.imageViews);
+    free(swapChain.images);
+    vkDestroySwapchainKHR(device, swapChain.swapChain, NULL);
+}
+
+static VkSurfaceFormatKHR getSurfaceFormat(
+    VkPhysicalDevice physicalDevice,
+    VkSurfaceKHR surface
+) {
     uint32_t count;
     vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &count, NULL);
     assert(count > 0);
@@ -99,7 +121,10 @@ static VkSurfaceFormatKHR getSurfaceFormat(VkPhysicalDevice physicalDevice, VkSu
     return format;
 }
 
-static VkPresentModeKHR getPresentMode(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface) {
+static VkPresentModeKHR getPresentMode(
+    VkPhysicalDevice physicalDevice,
+    VkSurfaceKHR surface
+) {
     uint32_t count;
     vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &count, NULL);
     assert(count > 0);
@@ -116,26 +141,26 @@ static VkPresentModeKHR getPresentMode(VkPhysicalDevice physicalDevice, VkSurfac
     return mode;
 }
 
-// Usually you'd use fmax/fmin for this but
-// MSVC doesn't allow implicit conversions from uint32_t into fmax/fmin
-// so it has max/min which are not standard
-// TODO: These are unsafe because they can cause double evaluation
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
 
-static VkExtent2D chooseExtent(VkSurfaceCapabilitiesKHR capabilities, uint32_t width, uint32_t height) {
+static inline uint32_t uint_min(uint32_t a, uint32_t b) { return a < b ? a : b; }
+static inline uint32_t uint_max(uint32_t a, uint32_t b) { return a > b ? a : b; }
+
+static VkExtent2D chooseExtent(
+    VkSurfaceCapabilitiesKHR capabilities,
+    uint32_t width, uint32_t height
+) {
     if (capabilities.currentExtent.width != UINT32_MAX) {
         return capabilities.currentExtent;
     }
 
     return (VkExtent2D) {
-        .width = MAX(
+        .width = uint_max(
             capabilities.minImageExtent.width,
-            MIN(capabilities.maxImageExtent.width, width)
+            uint_min(capabilities.maxImageExtent.width, width)
         ),
-        .height = MAX(
+        .height = uint_max(
             capabilities.minImageExtent.height,
-            MIN(capabilities.maxImageExtent.height, height)
+            uint_min(capabilities.maxImageExtent.height, height)
         )
     };
 }

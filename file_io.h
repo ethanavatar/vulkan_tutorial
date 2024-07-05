@@ -11,7 +11,7 @@
 
 size_t file_size(FILE *file);
 int read_all_bytes(FILE *file, char *buffer, size_t bytes);
-const char *read_file_bytes(const char *filename, size_t *size);
+const char *read_entire_file(const char *filename, size_t *size);
 
 #endif // FILE_IO_H
 
@@ -34,7 +34,7 @@ int read_all_bytes(FILE *const file, char *buffer, size_t bytes) {
 	return 1;
 }
 
-const char *read_file_bytes(const char *filename, size_t *bytes_read) {
+const char *read_entire_file(const char *filename, size_t *bytes_read) {
  	FILE *file = fopen(filename, "rb");
 	if (!file) {
 		fprintf(stderr, "Error opening file %s\n", filename);

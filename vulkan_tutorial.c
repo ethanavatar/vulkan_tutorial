@@ -17,7 +17,7 @@
 #define FILE_IO_IMPLEMENTATION
 #include "file_io.h"
 
-#include <cglm/cglm.h>
+//#include <cglm/cglm.h>
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -428,13 +428,13 @@ VkResult createGraphicsPipeline(
     VkResult result = VK_SUCCESS;
 
     size_t size;
-    const char *vertShaderCode = read_file_bytes("shaders/vert.spv", &size);
+    const char *vertShaderCode = read_entire_file("shaders/vert.spv", &size);
     VkShaderModule vertShaderModule;
     result = createShaderModule(device, vertShaderCode, size, &vertShaderModule);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create vertex shader module");
     free((void *) vertShaderCode);
 
-    const char *fragShaderCode = read_file_bytes("shaders/frag.spv", &size);
+    const char *fragShaderCode = read_entire_file("shaders/frag.spv", &size);
     VkShaderModule fragShaderModule;
     result = createShaderModule(device, fragShaderCode, size, &fragShaderModule);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create fragment shader module");
@@ -982,23 +982,22 @@ void vulkanCleanup(void) {
     vkFreeCommandBuffers(state.device, state.commandPool, 1, state.commandBuffers);
     vkDestroyCommandPool(state.device, state.commandPool, NULL);
 
-    for (uint32_t i = 0; i < state.swapChainImageCount; i++) {
-        vkDestroyFramebuffer(state.device, state.swapChainFramebuffers[i], NULL);
-    }
-    free(state.swapChainFramebuffers);
 
-    for (uint32_t i = 0; i < state.swapChainImageCount; i++) {
-        vkDestroyImageView(state.device, state.swapChainImageViews[i], NULL);
-    }
-    free(state.swapChainImageViews);
+    struct SwapChain swapChain = {
+        .swapChain = state.swapChain,
+        .imageCount = state.swapChainImageCount,
+        .images = state.swapChainImages,
+        .imageViews = state.swapChainImageViews,
+        .framebuffers = state.swapChainFramebuffers,
+        .imageFormat = state.swapChainImageFormat,
+        .extent = state.swapChainExtent
+    };
+    cleanupSwapChain(state.device, swapChain);
 
     vkDestroyPipeline(state.device, state.graphicsPipeline, NULL);
     vkDestroyPipelineLayout(state.device, state.pipelineLayout, NULL);
     vkDestroyRenderPass(state.device, state.renderPass, NULL);
 
-    free(state.swapChainImages);
-
-    vkDestroySwapchainKHR(state.device, state.swapChain, NULL);
     vkDestroyDevice(state.device, NULL);
     vkDestroySurfaceKHR(state.instance, state.windowSurface, NULL);
     vkDestroyInstance(state.instance, NULL);
