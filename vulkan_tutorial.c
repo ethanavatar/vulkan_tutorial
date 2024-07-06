@@ -850,8 +850,12 @@ VkResult recreateSwapChain(
     uint32_t graphicsFamily,
     uint32_t presentFamily,
     VkRenderPass renderPass,
-    struct SwapChain *swapChain
+    uint32_t fenceCount,
+    VkFence *inFlightFences,
+    struct SwapChain *activeSwapChain
 ) {
+    VkResult result;
+
     int width = 0, height = 0;
     glfwGetFramebufferSize(state.window, &width, &height);
     while (width == 0 || height == 0) {
@@ -861,10 +865,13 @@ VkResult recreateSwapChain(
 
     fprintf(stderr, "New dimensions: %dx%d\n", width, height);
 
-    vkDeviceWaitIdle(device);
+    result = vkDeviceWaitIdle(device);
+    PANIC_IF_NOT_VK_SUCCESS(result, "Failed to wait for device to be idle");
 
-    VkResult result;
-    cleanupSwapChain(device, swapChain);
+    result = vkWaitForFences(device, fenceCount, inFlightFences, VK_TRUE, UINT64_MAX);
+    PANIC_IF_NOT_VK_SUCCESS(result, "Failed to wait for frames in-flight to finish");
+
+    cleanupSwapChain(device, activeSwapChain);
     result = createSwapChain(
         physicalDevice,
         device,
@@ -873,19 +880,20 @@ VkResult recreateSwapChain(
         presentFamily,
         width,
         height,
-        swapChain
+        activeSwapChain
     );
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to recreate swap chain");
 
     result = createFramebuffers(
         device,
         renderPass,
-        swapChain->extent,
-        swapChain->imageViews,
-        swapChain->imageCount,
-        swapChain->framebuffers
+        activeSwapChain->extent,
+        activeSwapChain->imageViews,
+        activeSwapChain->imageCount,
+        activeSwapChain->framebuffers
     );
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to recreate framebuffers");
+
     return VK_SUCCESS;
 }
 
@@ -899,7 +907,7 @@ VkResult renderInit(void) {
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-    FIXME("Crashes during window resizing. Resizable window is disabled for now.");
+    FIXME("Crashes during window resizing. Seems to be supressed by using robustBufferAccess");
 
     GLFWwindow* window = glfwCreateWindow(
         initialWindowWidth,
@@ -1058,13 +1066,15 @@ void drawFrame(void) {
             state.graphicsFamily,
             state.presentFamily,
             state.renderPass,
+            maxFramesInFlight,
+            state.inFlightFences,
             &state.swapChain
         );
         return;
     } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
         const char *result_str = string_VkResult(result);
-        fprintf(stderr, "Failed to acquire swap chain image. Reason: %s\n", result_str);
-        return;
+        fprintf(stderr, "Result: %s\n", result_str);
+        PANIC_IF_NOT_VK_SUCCESS(result, "Failed to acquire swap chain image");
     }
 
     vkResetFences(state.device, 1, &state.inFlightFences[state.currentFrame]);
@@ -1082,9 +1092,8 @@ void drawFrame(void) {
 
     if (result != VK_SUCCESS) {
         const char *result_str = string_VkResult(result);
-        fprintf(stderr, "Failed to record command buffer\n");
         fprintf(stderr, "Result: %s\n", result_str);
-        return;
+        PANIC_IF_NOT_VK_SUCCESS(result, "Failed to record command buffer");
     }
 
     VkSemaphore waitSemaphores[] = { state.imageAvailableSemaphores[state.currentFrame] };
@@ -1111,9 +1120,8 @@ void drawFrame(void) {
 
     if (result != VK_SUCCESS) {
         const char *result_str = string_VkResult(result);
-        fprintf(stderr, "Failed to submit draw command buffer. Reason: %s\n", result_str);
-        exit(1);
-        return;
+        fprintf(stderr, "Result: %s\n", result_str);
+        PANIC_IF_NOT_VK_SUCCESS(result, "Failed to submit draw command buffer");
     }
 
     VkPresentInfoKHR presentInfo = { 0 };
@@ -1144,11 +1152,14 @@ void drawFrame(void) {
             state.graphicsFamily,
             state.presentFamily,
             state.renderPass,
+            maxFramesInFlight,
+            state.inFlightFences,
             &state.swapChain
         );
     } else if (result != VK_SUCCESS) {
         const char *result_str = string_VkResult(result);
-        fprintf(stderr, "Failed to present swap chain image. Reason: %s\n", result_str);
+        fprintf(stderr, "Result: %s\n", result_str);
+        PANIC_IF_NOT_VK_SUCCESS(result, "Failed to present swap chain image");
     }
 
     state.currentFrame = (state.currentFrame + 1) % maxFramesInFlight;

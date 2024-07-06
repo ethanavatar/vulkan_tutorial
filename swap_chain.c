@@ -137,10 +137,19 @@ static VkPresentModeKHR getPresentMode(
     VkPresentModeKHR *modes = alloca(count * sizeof(VkPresentModeKHR));
     vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &count, modes);
 
+    static const VkPresentModeKHR modePriority[] = {
+        VK_PRESENT_MODE_MAILBOX_KHR,
+        VK_PRESENT_MODE_IMMEDIATE_KHR,
+        VK_PRESENT_MODE_FIFO_KHR,
+        VK_PRESENT_MODE_FIFO_RELAXED_KHR
+    };
+
     VkPresentModeKHR mode = VK_PRESENT_MODE_FIFO_KHR;
-    for (uint32_t i = 0; i < count; i++) {
-        if (modes[i] != VK_PRESENT_MODE_MAILBOX_KHR) continue;
-        mode = modes[i];
+    for (uint32_t i = 0; i < sizeof(modePriority) / sizeof(modePriority[0]); i++) {
+        for (uint32_t j = 0; j < count; j++) {
+            if (modes[j] != modePriority[i]) continue;
+            mode = modes[j];
+        }
     }
 
     switch (mode) {
