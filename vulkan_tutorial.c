@@ -214,6 +214,11 @@ int scoreDeviceCapabilities(
 
     score += deviceProperties.limits.maxImageDimension2D;
 
+    TODO("robustBufferAccess shouldnt be required");
+    if (!deviceFeatures.robustBufferAccess) {
+        return 0;
+    }
+
     if (!deviceFeatures.geometryShader) {
         return 0;
     }
@@ -317,7 +322,8 @@ VkResult createLogicalDevice(
     float queuePriority = 1.0f;
     queueCreateInfo.pQueuePriorities = &queuePriority;
 
-    VkPhysicalDeviceFeatures deviceFeatures = { 0 };
+    VkPhysicalDeviceFeatures deviceFeatures;
+    vkGetPhysicalDeviceFeatures(physicalDevice, &deviceFeatures);
 
     VkDeviceCreateInfo deviceCreateInfo = { 0 };
     deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -432,9 +438,13 @@ static struct AttributeDescriptions getAttributeDescriptions(void) {
     return attributeDescriptions;
 }
 
+static const VkDynamicState dynamicStates[] = {
+    VK_DYNAMIC_STATE_VIEWPORT,
+    VK_DYNAMIC_STATE_SCISSOR
+};
+
 VkResult createGraphicsPipeline(
     VkDevice device,
-    VkExtent2D swapChainExtent,
     VkRenderPass renderPass,
     VkPipelineLayout *pipelineLayout,
     VkPipeline *graphicsPipeline
@@ -484,41 +494,23 @@ VkResult createGraphicsPipeline(
             attributeDescriptions.color
         }
     };
-    
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly = { 0 };
     inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     inputAssembly.primitiveRestartEnable = VK_FALSE;
 
-    VkViewport viewport = { 0 };
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = (float) swapChainExtent.width;
-    viewport.height = (float) swapChainExtent.height;
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-
-    VkRect2D scissor = { 0 };
-    scissor.offset = (VkOffset2D) { 0, 0 };
-    scissor.extent = swapChainExtent;
-
-    VkDynamicState dynamicStates[] = {
-        VK_DYNAMIC_STATE_VIEWPORT,
-        VK_DYNAMIC_STATE_SCISSOR
+    VkPipelineDynamicStateCreateInfo dynamicState = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+        .dynamicStateCount = 2,
+        .pDynamicStates = dynamicStates
     };
 
-    VkPipelineDynamicStateCreateInfo dynamicState = { 0 };
-    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dynamicState.dynamicStateCount = 2;
-    dynamicState.pDynamicStates = dynamicStates;
-
-    VkPipelineViewportStateCreateInfo viewportState = { 0 };
-    viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    viewportState.viewportCount = 1;
-    viewportState.pViewports = &viewport;
-    viewportState.scissorCount = 1;
-    viewportState.pScissors = &scissor;
+    VkPipelineViewportStateCreateInfo viewportState = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        .viewportCount = 1,
+        .scissorCount = 1
+    };
 
     VkPipelineRasterizationStateCreateInfo rasterizer = { 0 };
     rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
@@ -549,6 +541,10 @@ VkResult createGraphicsPipeline(
     colorBlending.logicOp = VK_LOGIC_OP_COPY;
     colorBlending.attachmentCount = 1;
     colorBlending.pAttachments = &colorBlendAttachment;
+    colorBlending.blendConstants[0] = 0.0f;
+    colorBlending.blendConstants[1] = 0.0f;
+    colorBlending.blendConstants[2] = 0.0f;
+    colorBlending.blendConstants[3] = 0.0f;
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = { 0 };
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -570,6 +566,7 @@ VkResult createGraphicsPipeline(
     pipelineInfo.renderPass = renderPass;
     pipelineInfo.subpass = 0;
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+    pipelineInfo.pDynamicState = &dynamicState;
 
     result = vkCreateGraphicsPipelines(
         device,
@@ -610,7 +607,7 @@ VkResult createFramebuffers(
         framebufferInfo.layers = 1;
 
         result = vkCreateFramebuffer(device, &framebufferInfo, NULL, &framebuffers[i]); 
-        if (result != VK_SUCCESS) return result;
+        RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create framebuffer");
     }
 
     return result;
@@ -658,10 +655,11 @@ VkResult recordCommandBuffer(
     VkCommandBufferBeginInfo beginInfo = { 0 };
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = 0;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
     beginInfo.pInheritanceInfo = NULL;
 
     result = vkBeginCommandBuffer(commandBuffer, &beginInfo);
-    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to begin recording command buffer");
+    PANIC_IF_NOT_VK_SUCCESS(result, "Failed to begin recording command buffer");
 
     VkRenderPassBeginInfo renderPassInfo = { 0 };
     renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -683,18 +681,20 @@ VkResult recordCommandBuffer(
         VkDeviceSize offsets[] = { 0 };
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
-        VkViewport viewport = { 0 };
-        viewport.x = 0.0f;
-        viewport.y = 0.0f;
-        viewport.width = (float) swapChainExtent.width;
-        viewport.height = (float) swapChainExtent.height;
-        viewport.minDepth = 0.0f;
-        viewport.maxDepth = 1.0f;
+        VkViewport viewport = {
+            .x = 0.0f,
+            .y = 0.0f,
+            .width = (float) swapChainExtent.width,
+            .height = (float) swapChainExtent.height,
+            .minDepth = 0.0f,
+            .maxDepth = 1.0f
+        };
         vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
 
-        VkRect2D scissor = { 0 };
-        scissor.offset = (VkOffset2D) { 0, 0 };
-        scissor.extent = swapChainExtent;
+        VkRect2D scissor = {
+            .offset = { 0, 0 },
+            .extent = swapChainExtent
+        };
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
         vkCmdDraw(commandBuffer, 3, 1, 0, 0);
@@ -702,6 +702,8 @@ VkResult recordCommandBuffer(
     vkCmdEndRenderPass(commandBuffer);
 
     result = vkEndCommandBuffer(commandBuffer);
+    PANIC_IF_NOT_VK_SUCCESS(result, "Failed to record command buffer");
+
     return result;
 }
 
@@ -761,6 +763,8 @@ VkResult createVertexBuffer(
     VkDeviceMemory *outVertexBufferMemory
 ) {
     VkResult result;
+    fprintf(stderr, "sizeof(vertices) = %lu\n", sizeof(vertices));
+    fprintf(stderr, "sizeof(vertices[0]) = %lu\n", sizeof(vertices[0]));
     VkBufferCreateInfo bufferInfo = {
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         .size = sizeof(vertices),
@@ -894,7 +898,7 @@ VkResult renderInit(void) {
     fprintf(stderr, "Vulkan supported: %s\n", glfwVulkanSupported() ? "yes" : "no");
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
     FIXME("Crashes during window resizing. Resizable window is disabled for now.");
 
     GLFWwindow* window = glfwCreateWindow(
@@ -974,7 +978,12 @@ VkResult renderInit(void) {
 
     VkPipelineLayout pipelineLayout;
     VkPipeline graphicsPipeline;
-    result = createGraphicsPipeline(device, swapChain.extent, renderPass, &pipelineLayout, &graphicsPipeline);
+    result = createGraphicsPipeline(
+        device,
+        renderPass,
+        &pipelineLayout,
+        &graphicsPipeline
+    );
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create graphics pipeline");
     state.pipelineLayout = pipelineLayout;
     state.graphicsPipeline = graphicsPipeline;
@@ -1039,14 +1048,9 @@ void drawFrame(void) {
         &imageIndex
     );
 
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || state.framebufferResized) {
-        if (state.framebufferResized) {
-            state.framebufferResized = false;
-            fprintf(stderr, "Recreating swap chain. Reason: Framebuffer resized\n");
-        } else {
-            const char *result_str = string_VkResult(result);
-            fprintf(stderr, "Recreating swap chain. Reason: %s\n", result_str);
-        }
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+        const char *result_str = string_VkResult(result);
+        fprintf(stderr, "Recreating swap chain. Reason: %s\n", result_str);
         recreateSwapChain(
             state.physicalDevice,
             state.device,
@@ -1057,13 +1061,14 @@ void drawFrame(void) {
             &state.swapChain
         );
         return;
-    } else if (result != VK_SUCCESS) {
+    } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
         const char *result_str = string_VkResult(result);
         fprintf(stderr, "Failed to acquire swap chain image. Reason: %s\n", result_str);
         return;
     }
 
     vkResetFences(state.device, 1, &state.inFlightFences[state.currentFrame]);
+
     vkResetCommandBuffer(state.commandBuffers[state.currentFrame], 0);
     result = recordCommandBuffer(
         state.commandBuffers[state.currentFrame],
@@ -1074,30 +1079,40 @@ void drawFrame(void) {
         state.swapChain.extent,
         state.graphicsPipeline
     );
+
     if (result != VK_SUCCESS) {
+        const char *result_str = string_VkResult(result);
         fprintf(stderr, "Failed to record command buffer\n");
+        fprintf(stderr, "Result: %s\n", result_str);
         return;
     }
 
-    VkSubmitInfo submitInfo = { 0 };
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-
     VkSemaphore waitSemaphores[] = { state.imageAvailableSemaphores[state.currentFrame] };
     VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-    submitInfo.waitSemaphoreCount = 1;
-    submitInfo.pWaitSemaphores = waitSemaphores;
-    submitInfo.pWaitDstStageMask = waitStages;
-
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = state.commandBuffers;
-
     VkSemaphore signalSemaphores[] = { state.renderFinishedSemaphores[state.currentFrame] };
-    submitInfo.signalSemaphoreCount = 1;
-    submitInfo.pSignalSemaphores = signalSemaphores;
 
-    result = vkQueueSubmit(state.deviceQueue, 1, &submitInfo, state.inFlightFences[state.currentFrame]);
+    VkSubmitInfo submitInfo = {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .commandBufferCount = 1,
+        .pCommandBuffers = state.commandBuffers,
+        .waitSemaphoreCount = 1,
+        .pWaitSemaphores = waitSemaphores,
+        .pWaitDstStageMask = waitStages,
+        .signalSemaphoreCount = 1,
+        .pSignalSemaphores = signalSemaphores
+    };
+
+    result = vkQueueSubmit(
+        state.deviceQueue,
+        1,
+        &submitInfo,
+        state.inFlightFences[state.currentFrame]
+    );
+
     if (result != VK_SUCCESS) {
-        fprintf(stderr, "Failed to submit draw command buffer\n");
+        const char *result_str = string_VkResult(result);
+        fprintf(stderr, "Failed to submit draw command buffer. Reason: %s\n", result_str);
+        exit(1);
         return;
     }
 
@@ -1113,9 +1128,27 @@ void drawFrame(void) {
     presentInfo.pResults = NULL;
 
     result = vkQueuePresentKHR(state.presentQueue, &presentInfo);
-    if (result != VK_SUCCESS) {
-        fprintf(stderr, "Failed to present swap chain image\n");
-        return;
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || state.framebufferResized) {
+        if (state.framebufferResized) {
+            state.framebufferResized = false;
+            fprintf(stderr, "Recreating swap chain. Reason: Framebuffer resized\n");
+        } else {
+            const char *result_str = string_VkResult(result);
+            fprintf(stderr, "Recreating swap chain. Reason: %s\n", result_str);
+        }
+
+        recreateSwapChain(
+            state.physicalDevice,
+            state.device,
+            state.windowSurface,
+            state.graphicsFamily,
+            state.presentFamily,
+            state.renderPass,
+            &state.swapChain
+        );
+    } else if (result != VK_SUCCESS) {
+        const char *result_str = string_VkResult(result);
+        fprintf(stderr, "Failed to present swap chain image. Reason: %s\n", result_str);
     }
 
     state.currentFrame = (state.currentFrame + 1) % maxFramesInFlight;
@@ -1144,6 +1177,10 @@ void vulkanCleanup(void) {
     vkDestroyCommandPool(state.device, state.commandPool, NULL);
 
     cleanupSwapChain(state.device, &state.swapChain);
+    free(state.swapChain.framebuffers);
+    free(state.swapChain.imageViews);
+    free(state.swapChain.images);
+
     vkDestroyBuffer(state.device, state.vertexBuffer, NULL);
     vkFreeMemory(state.device, state.vertexBufferMemory, NULL);
 

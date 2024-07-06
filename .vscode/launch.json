@@ -8,7 +8,7 @@
             "type": "lldb",
             "request": "launch",
             "name": "Debug",
-            "program": "${workspaceFolder}/build/Debug/vulkan_tutorial.exe",
+            "program": "${workspaceFolder}/clang_build/Debug/vulkan_tutorial.exe",
             "args": [],
             "cwd": "${workspaceFolder}"
         }

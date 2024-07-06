@@ -99,13 +99,9 @@ void cleanupSwapChain(
     for (uint32_t i = 0; i < swapChain->imageCount; i++) {
         vkDestroyFramebuffer(device, swapChain->framebuffers[i], NULL);
     }
-    free(swapChain->framebuffers);
-
     for (uint32_t i = 0; i < swapChain->imageCount; i++) {
         vkDestroyImageView(device, swapChain->imageViews[i], NULL);
     }
-    free(swapChain->imageViews);
-    free(swapChain->images);
     vkDestroySwapchainKHR(device, swapChain->vkSwapChain, NULL);
 }
 
@@ -147,6 +143,24 @@ static VkPresentModeKHR getPresentMode(
         mode = modes[i];
     }
 
+    switch (mode) {
+        case VK_PRESENT_MODE_IMMEDIATE_KHR:
+            printf("Present mode: immediate\n");
+            break;
+        case VK_PRESENT_MODE_MAILBOX_KHR:
+            printf("Present mode: mailbox\n");
+            break;
+        case VK_PRESENT_MODE_FIFO_KHR:
+            printf("Present mode: fifo\n");
+            break;
+        case VK_PRESENT_MODE_FIFO_RELAXED_KHR:
+            printf("Present mode: fifo relaxed\n");
+            break;
+        default:
+            printf("Present mode: unknown\n");
+            break;
+    }
+
     return mode;
 }
 
@@ -159,10 +173,11 @@ static VkExtent2D chooseExtent(
     uint32_t width, uint32_t height
 ) {
     if (capabilities.currentExtent.width != UINT32_MAX) {
+        fprintf(stderr, "Chosen extent: %dx%d\n", capabilities.currentExtent.width, capabilities.currentExtent.height);
         return capabilities.currentExtent;
     }
 
-    return (VkExtent2D) {
+    VkExtent2D extent = {
         .width = uint_max(
             capabilities.minImageExtent.width,
             uint_min(capabilities.maxImageExtent.width, width)
@@ -172,6 +187,9 @@ static VkExtent2D chooseExtent(
             uint_min(capabilities.maxImageExtent.height, height)
         )
     };
+    
+    fprintf(stderr, "Chosen extent: %dx%d\n", extent.width, extent.height);
+    return extent;
 }
 
 VkResult createImageViews(

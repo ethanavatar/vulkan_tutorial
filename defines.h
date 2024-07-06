@@ -29,6 +29,13 @@
     }\
 } while(0)
 
+#define PANIC_IF_NOT_VK_SUCCESS(R, MSG) do {\
+    if (R != VK_SUCCESS) {\
+        fprintf(stderr, "FATAL: %s\n", MSG);\
+        exit(1);\
+    }\
+} while(0)
+
 #if defined(_MSC_VER)
 #   include <malloc.h>
 #   define alloca _alloca
