@@ -38,7 +38,7 @@ add_executable(vulkan_tutorial vulkan_tutorial.c debug_messenger.c extensions.c 
 target_include_directories(glfw PRIVATE $ENV{VULKAN_SDK}/Include)
 
 target_include_directories(vulkan_tutorial PRIVATE ${CMAKE_SOURCE_DIR}/glfw/include)
-#target_include_directories(vulkan_tutorial PRIVATE ${CMAKE_SOURCE_DIR}/cglm/include)
+target_include_directories(vulkan_tutorial PRIVATE ${CMAKE_SOURCE_DIR}/cglm/include)
 target_include_directories(vulkan_tutorial PRIVATE $ENV{VULKAN_SDK}/Include)
 
 target_link_libraries(vulkan_tutorial $ENV{VULKAN_SDK}/Lib/vulkan-1.lib)

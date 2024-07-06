@@ -385,6 +385,53 @@ VkResult createRenderPass(
     return vkCreateRenderPass(device, &renderPassInfo, NULL, renderPass);
 }
 
+#include <cglm/cglm.h>
+
+struct Vertex {
+    vec2 pos;
+    vec3 color;
+};
+
+const struct Vertex vertices[] = {
+    { {  0.0f, -0.5f }, { 1.0f, 0.0f, 0.0f } },
+    { {  0.5f,  0.5f }, { 0.0f, 1.0f, 0.0f } },
+    { { -0.5f,  0.5f }, { 0.0f, 0.0f, 1.0f } }
+};
+
+static VkVertexInputBindingDescription getBindingDescription(void) {
+    VkVertexInputBindingDescription bindingDescription = {
+        .binding = 0,
+        .stride = sizeof(struct Vertex),
+        .inputRate = VK_VERTEX_INPUT_RATE_VERTEX
+    };
+    return bindingDescription;
+}
+
+struct AttributeDescriptions {
+    VkVertexInputAttributeDescription pos;
+    VkVertexInputAttributeDescription color;
+};
+
+static struct AttributeDescriptions getAttributeDescriptions(void) {
+    struct AttributeDescriptions attributeDescriptions = { 0 };
+
+    attributeDescriptions.pos = (VkVertexInputAttributeDescription) {
+        .binding = 0,
+        .location = 0,
+        .format = VK_FORMAT_R32G32_SFLOAT,
+        .offset = offsetof(struct Vertex, pos)
+    };
+
+    attributeDescriptions.color = (VkVertexInputAttributeDescription) {
+        .binding = 0,
+        .location = 1,
+        .format = VK_FORMAT_R32G32B32_SFLOAT,
+        .offset = offsetof(struct Vertex, color)
+    };
+
+    return attributeDescriptions;
+}
+
 VkResult createGraphicsPipeline(
     VkDevice device,
     VkExtent2D swapChainExtent,
@@ -424,8 +471,20 @@ VkResult createGraphicsPipeline(
         fragShaderStageInfo
     };
 
-    VkPipelineVertexInputStateCreateInfo vertexInputInfo = { 0 };
-    vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    VkVertexInputBindingDescription bindingDescription = getBindingDescription();
+    struct AttributeDescriptions attributeDescriptions = getAttributeDescriptions();
+
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        .vertexBindingDescriptionCount = 1,
+        .vertexAttributeDescriptionCount = 2,
+        .pVertexBindingDescriptions = &bindingDescription,
+        .pVertexAttributeDescriptions = (VkVertexInputAttributeDescription[]) {
+            attributeDescriptions.pos,
+            attributeDescriptions.color
+        }
+    };
+    
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly = { 0 };
     inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -587,6 +646,7 @@ VkResult createCommandBuffers(
 
 VkResult recordCommandBuffer(
     VkCommandBuffer commandBuffer,
+    VkBuffer vertexBuffer,
     uint32_t imageIndex,
     VkRenderPass renderPass,
     VkFramebuffer *swapChainFramebuffers,
@@ -618,6 +678,10 @@ VkResult recordCommandBuffer(
     vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
     {
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+
+        VkBuffer vertexBuffers[] = { vertexBuffer };
+        VkDeviceSize offsets[] = { 0 };
+        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
         VkViewport viewport = { 0 };
         viewport.x = 0.0f;
@@ -670,6 +734,74 @@ VkResult createSyncObjects(
     return result;
 }
 
+uint32_t findMemoryType(
+    VkPhysicalDevice physicalDevice,
+    uint32_t typeFilter,
+    VkMemoryPropertyFlags properties
+) {
+    VkPhysicalDeviceMemoryProperties memProperties;
+    vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+
+    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+        if (
+            (typeFilter & (1 << i)) &&
+            (memProperties.memoryTypes[i].propertyFlags & properties) == properties
+        ) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+VkResult createVertexBuffer(
+    VkDevice device,
+    VkPhysicalDevice physicalDevice,
+    VkBuffer *outVertexBuffer,
+    VkDeviceMemory *outVertexBufferMemory
+) {
+    VkResult result;
+    VkBufferCreateInfo bufferInfo = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size = sizeof(vertices),
+        .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE
+    };
+    
+    VkBuffer vertexBuffer;
+    result = vkCreateBuffer(device, &bufferInfo, NULL, &vertexBuffer);
+    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create vertex buffer");
+
+    VkMemoryRequirements memRequirements;
+    vkGetBufferMemoryRequirements(device, vertexBuffer, &memRequirements);
+
+    VkMemoryAllocateInfo allocInfo = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = memRequirements.size,
+        .memoryTypeIndex = findMemoryType(
+            physicalDevice,
+            memRequirements.memoryTypeBits,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        )
+    };
+    
+    VkDeviceMemory vertexBufferMemory;
+    result = vkAllocateMemory(device, &allocInfo, NULL, &vertexBufferMemory);
+    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to allocate vertex buffer memory");
+
+    vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
+
+    void *data;
+    vkMapMemory(device, vertexBufferMemory, 0, bufferInfo.size, 0, &data);
+    memcpy(data, vertices, sizeof(vertices));
+    vkUnmapMemory(device, vertexBufferMemory);
+
+    *outVertexBuffer = vertexBuffer;
+    *outVertexBufferMemory = vertexBufferMemory;
+
+    return VK_SUCCESS;
+}
+
 #define QUEUE_FAMILIES_COUNT 2
 static struct RenderState {
     VkInstance instance;
@@ -693,6 +825,9 @@ static struct RenderState {
     VkRenderPass renderPass;
     VkPipelineLayout pipelineLayout;
     VkPipeline graphicsPipeline;
+
+    VkBuffer vertexBuffer;
+    VkDeviceMemory vertexBufferMemory;
 
     VkCommandPool commandPool;
     VkCommandBuffer *commandBuffers;
@@ -861,6 +996,13 @@ VkResult renderInit(void) {
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create command pool");
     state.commandPool = commandPool;
 
+    VkBuffer vertexBuffer;
+    VkDeviceMemory vertexBufferMemory;
+    result = createVertexBuffer(device, physicalDevice, &vertexBuffer, &vertexBufferMemory);
+    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create vertex buffer");
+    state.vertexBuffer = vertexBuffer;
+    state.vertexBufferMemory = vertexBufferMemory;
+
     VkCommandBuffer *commandBuffers = malloc(sizeof(VkCommandBuffer) * maxFramesInFlight);
     result = createCommandBuffers(device, commandPool, &commandBuffers, maxFramesInFlight);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create command buffer");
@@ -925,6 +1067,7 @@ void drawFrame(void) {
     vkResetCommandBuffer(state.commandBuffers[state.currentFrame], 0);
     result = recordCommandBuffer(
         state.commandBuffers[state.currentFrame],
+        state.vertexBuffer,
         imageIndex,
         state.renderPass,
         state.swapChain.framebuffers,
@@ -1001,6 +1144,8 @@ void vulkanCleanup(void) {
     vkDestroyCommandPool(state.device, state.commandPool, NULL);
 
     cleanupSwapChain(state.device, &state.swapChain);
+    vkDestroyBuffer(state.device, state.vertexBuffer, NULL);
+    vkFreeMemory(state.device, state.vertexBufferMemory, NULL);
 
     vkDestroyPipeline(state.device, state.graphicsPipeline, NULL);
     vkDestroyPipelineLayout(state.device, state.pipelineLayout, NULL);
