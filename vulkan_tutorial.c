@@ -17,8 +17,6 @@
 #define FILE_IO_IMPLEMENTATION
 #include "file_io.h"
 
-//#include <cglm/cglm.h>
-
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
@@ -68,9 +66,8 @@ bool checkValidationLayers(void) {
     return true;
 }
 
-VkResult createInstance(
-    VkInstance *Instance
-) {
+VkResult createVulkanInstance(VkInstance *outInstance) {
+    VkResult result;
     // This tricks MSVC into not thinking the conditional is constant
     bool enableValidationLayers = ENABLE_VALIDATION_LAYERS;
     if (enableValidationLayers && !checkValidationLayers()) {
@@ -129,7 +126,9 @@ VkResult createInstance(
     instanceCreateInfo.enabledExtensionCount = extensionCount;
     instanceCreateInfo.ppEnabledExtensionNames = extensions;
 
-    return vkCreateInstance(&instanceCreateInfo, NULL, Instance);
+    result = vkCreateInstance(&instanceCreateInfo, NULL, outInstance);
+    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create instance");
+    return VK_SUCCESS;
 }
 
 VkResult getQueueFamilies(
@@ -273,12 +272,14 @@ int scoreDeviceCapabilities(
 VkResult getPhysicalDevice(
     VkInstance instance,
     VkSurfaceKHR surface,
-    VkPhysicalDevice *physicalDevice
+    VkPhysicalDevice *outPhysicalDevice
 ) {
-    *physicalDevice = VK_NULL_HANDLE;
+    VkResult result;
+    *outPhysicalDevice = VK_NULL_HANDLE;
 
     uint32_t deviceCount = 0;
-    vkEnumeratePhysicalDevices(instance, &deviceCount, NULL);
+    result = vkEnumeratePhysicalDevices(instance, &deviceCount, NULL);
+    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to enumerate physical devices");
 
     if (deviceCount == 0) {
         fprintf(stderr, "No physical devices found\n");
@@ -286,7 +287,8 @@ VkResult getPhysicalDevice(
     }
 
     VkPhysicalDevice *devices = alloca(deviceCount * sizeof(VkPhysicalDevice));
-    vkEnumeratePhysicalDevices(instance, &deviceCount, devices);
+    result = vkEnumeratePhysicalDevices(instance, &deviceCount, devices);
+    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to enumerate physical devices");
 
     // Find the device with the highest score
     int bestScore = 0;
@@ -304,7 +306,7 @@ VkResult getPhysicalDevice(
         return VK_ERROR_INITIALIZATION_FAILED;
     }
 
-    *physicalDevice = devices[bestIndex];
+    *outPhysicalDevice = devices[bestIndex];
 
     return VK_SUCCESS;
 }
@@ -312,83 +314,87 @@ VkResult getPhysicalDevice(
 VkResult createLogicalDevice(
     VkPhysicalDevice physicalDevice,
     uint32_t graphicsFamily,
-    VkDevice *device
+    VkDevice *outDevice
 ) {
-    VkDeviceQueueCreateInfo queueCreateInfo = { 0 };
-    queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queueCreateInfo.queueFamilyIndex = graphicsFamily;
-    queueCreateInfo.queueCount = 1;
-
-    float queuePriority = 1.0f;
-    queueCreateInfo.pQueuePriorities = &queuePriority;
+    VkResult result;
+    VkDeviceQueueCreateInfo queueCreateInfo = {
+        .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+        .queueFamilyIndex = graphicsFamily,
+        .queueCount = 1,
+        .pQueuePriorities = (float[]) { 1.0f }
+    };
 
     VkPhysicalDeviceFeatures deviceFeatures;
     vkGetPhysicalDeviceFeatures(physicalDevice, &deviceFeatures);
 
-    VkDeviceCreateInfo deviceCreateInfo = { 0 };
-    deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
-
-    deviceCreateInfo.queueCreateInfoCount = 1;
-    deviceCreateInfo.pEnabledFeatures = &deviceFeatures;
+    VkDeviceCreateInfo deviceCreateInfo = {
+        .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        .pQueueCreateInfos = &queueCreateInfo,
+        .queueCreateInfoCount = 1,
+        .pEnabledFeatures = &deviceFeatures,
+        .enabledExtensionCount = REQUESTED_DEVICE_EXTENSIONS,
+        .ppEnabledExtensionNames = deviceExtensions
+    };
 
     if (ENABLE_VALIDATION_LAYERS) {
         deviceCreateInfo.enabledLayerCount = REQUESTED_VALIDATION_LAYERS;
         deviceCreateInfo.ppEnabledLayerNames = validationLayers;
-    } else {
-        deviceCreateInfo.enabledLayerCount = 0;
     }
 
-    // Enable device extensions
-    deviceCreateInfo.enabledExtensionCount = REQUESTED_DEVICE_EXTENSIONS;
-    deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions;
-
-    return vkCreateDevice(physicalDevice, &deviceCreateInfo, NULL, device);
+    result = vkCreateDevice(physicalDevice, &deviceCreateInfo, NULL, outDevice);
+    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create logical device");
+    return VK_SUCCESS;
 }
 
 VkResult createRenderPass(
     VkDevice device,
     VkFormat imageFormat,
-    VkRenderPass *renderPass
+    VkRenderPass *outRenderPass
 ) {
-    VkAttachmentDescription colorAttachment = { 0 };
-    colorAttachment.format = imageFormat;
-    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    VkAttachmentDescription colorAttachment = {
+        .format = imageFormat,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+        .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+    };
 
-    VkAttachmentReference colorAttachmentRef = { 0 };
-    colorAttachmentRef.attachment = 0;
-    colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    VkAttachmentReference colorAttachmentRef = {
+        .attachment = 0,
+        .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    };
 
-    VkSubpassDescription subpass = { 0 };
-    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount = 1;
-    subpass.pColorAttachments = &colorAttachmentRef;
+    VkSubpassDescription subpass = {
+        .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+        .colorAttachmentCount = 1,
+        .pColorAttachments = &colorAttachmentRef
+    };
 
-    VkRenderPassCreateInfo renderPassInfo = { 0 };
-    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    renderPassInfo.attachmentCount = 1;
-    renderPassInfo.pAttachments = &colorAttachment;
-    renderPassInfo.subpassCount = 1;
-    renderPassInfo.pSubpasses = &subpass;
+    VkSubpassDependency dependency = {
+        .srcSubpass = VK_SUBPASS_EXTERNAL,
+        .dstSubpass = 0,
+        .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .srcAccessMask = 0,
+        .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
+    };
 
-    VkSubpassDependency dependency = { 0 };
-    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-    dependency.dstSubpass = 0;
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependency.srcAccessMask = 0;
-    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    VkRenderPassCreateInfo renderPassInfo = {
+        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+        .attachmentCount = 1,
+        .pAttachments = &colorAttachment,
+        .subpassCount = 1,
+        .pSubpasses = &subpass,
+        .dependencyCount = 1,
+        .pDependencies = &dependency
+    };
 
-    renderPassInfo.dependencyCount = 1;
-    renderPassInfo.pDependencies = &dependency;
-
-    return vkCreateRenderPass(device, &renderPassInfo, NULL, renderPass);
+    VkResult result = vkCreateRenderPass(device, &renderPassInfo, NULL, outRenderPass);
+    RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create render pass");
+    return result;
 }
 
 #include <cglm/cglm.h>
@@ -447,9 +453,9 @@ VkResult createGraphicsPipeline(
     VkDevice device,
     VkRenderPass renderPass,
     VkPipelineLayout *pipelineLayout,
-    VkPipeline *graphicsPipeline
+    VkPipeline *outGraphicsPipeline
 ) {
-    VkResult result = VK_SUCCESS;
+    VkResult result;
 
     size_t size;
     const char *vertShaderCode = read_entire_file("shaders/vert.spv", &size);
@@ -574,7 +580,7 @@ VkResult createGraphicsPipeline(
         1,
         &pipelineInfo,
         NULL,
-        graphicsPipeline
+        outGraphicsPipeline
     );
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create graphics pipeline");
 
@@ -898,6 +904,8 @@ VkResult recreateSwapChain(
 }
 
 VkResult renderInit(void) {
+    VkResult result;
+
     if (!glfwInit()) {
         fprintf(stderr, "Failed to initialize GLFW\n");
         exit(1);
@@ -909,47 +917,38 @@ VkResult renderInit(void) {
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
     FIXME("Crashes during window resizing. Seems to be supressed by using robustBufferAccess");
 
-    GLFWwindow* window = glfwCreateWindow(
+    state.window = glfwCreateWindow(
         initialWindowWidth,
         initialWindowHeight,
         "Vulkan Triangle",
         NULL,
         NULL
     );
-    state.window = window;
 
     fprintf(stderr, "Initializing Vulkan\n");
-    VkInstance instance;
-    VkResult result = createInstance(&instance);
+    result = createVulkanInstance(&state.instance);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create Vulkan instance");
-    state.instance = instance;
 
-    VkSurfaceKHR surface = VK_NULL_HANDLE;
-    result = glfwCreateWindowSurface(instance, window, NULL, &surface);
+    result = glfwCreateWindowSurface(state.instance, state.window, NULL, &state.windowSurface);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create window surface");
-    state.windowSurface = surface;
 
-    TODO("Some sort of optional type for debugMessenger")
-    VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
+    state.debugMessenger = VK_NULL_HANDLE;
     if (ENABLE_VALIDATION_LAYERS) {
-        result = createDebugMessenger(instance, &debugMessenger);
+        result = createDebugMessenger(state.instance, &state.debugMessenger);
         RETURN_IF_NOT_VK_SUCCESS(result, "Failed to initialize debug messenger");
     }
-    state.debugMessenger = debugMessenger;
 
-    VkPhysicalDevice physicalDevice;
-    result = getPhysicalDevice(instance, surface, &physicalDevice);
+    result = getPhysicalDevice(state.instance, state.windowSurface, &state.physicalDevice);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to get physical device");
-    state.physicalDevice = physicalDevice;
 
     uint32_t graphicsFamily;
     VkQueueFlags flags = VK_QUEUE_GRAPHICS_BIT;
-    result = getQueueFamilies(physicalDevice, flags, &graphicsFamily);
+    result = getQueueFamilies(state.physicalDevice, flags, &graphicsFamily);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to get graphics queue family");
     state.graphicsFamily = graphicsFamily;
 
     VkDevice device;
-    result = createLogicalDevice(physicalDevice, graphicsFamily, &device);
+    result = createLogicalDevice(state.physicalDevice, graphicsFamily, &device);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create logical device");
     state.device = device;
 
@@ -958,7 +957,7 @@ VkResult renderInit(void) {
     state.deviceQueue = deviceQueue;
 
     uint32_t presentFamily;
-    result = getPresentQueueFamilies(physicalDevice, surface, &presentFamily);
+    result = getPresentQueueFamilies(state.physicalDevice, state.windowSurface, &presentFamily);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to get present queue family");
     state.presentFamily = presentFamily;
 
@@ -968,9 +967,9 @@ VkResult renderInit(void) {
 
     struct SwapChain swapChain;
     result = createSwapChain(
-        physicalDevice,
+        state.physicalDevice,
         device,
-        surface,
+        state.windowSurface,
         graphicsFamily,
         presentFamily,
         initialWindowWidth, initialWindowHeight,
@@ -1015,7 +1014,7 @@ VkResult renderInit(void) {
 
     VkBuffer vertexBuffer;
     VkDeviceMemory vertexBufferMemory;
-    result = createVertexBuffer(device, physicalDevice, &vertexBuffer, &vertexBufferMemory);
+    result = createVertexBuffer(device, state.physicalDevice, &vertexBuffer, &vertexBufferMemory);
     RETURN_IF_NOT_VK_SUCCESS(result, "Failed to create vertex buffer");
     state.vertexBuffer = vertexBuffer;
     state.vertexBufferMemory = vertexBufferMemory;
